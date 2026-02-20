@@ -12,6 +12,7 @@ import java.io.OutputStream;
 import java.net.HttpURLConnection;
 import java.net.URL;
 import java.nio.file.Files;
+import java.util.Date;
 import java.util.concurrent.TimeUnit;
 
 public class LibGDXImageFetcher extends ImageFetcher {
@@ -37,9 +38,15 @@ public class LibGDXImageFetcher extends ImageFetcher {
                 return false;
             }
 
-            if (disableScryfallDownload && urlToDownload.startsWith(ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD)) {
+            if (scryfallCooldownTime != null && urlToDownload.startsWith(ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD)) {
                 // Don't try to download card images from scryfall if we've been rate limited
-                return false;
+                if (scryfallCooldownTime.after(new Date())) {
+                    System.err.println("Currently in cooldown period for scryfall downloads. Skipping download attempt for: " + urlToDownload);
+                    return false;
+                } else {
+                    // Cooldown period has expired, reset the cooldown time
+                    scryfallCooldownTime = null;
+                }
             }
 
             String newdespath = urlToDownload.contains(".fullborder.") || urlToDownload.startsWith(ForgeConstants.URL_PIC_SCRYFALL_DOWNLOAD) ?
@@ -63,10 +70,10 @@ public class LibGDXImageFetcher extends ImageFetcher {
                 if (responseCode == 429) {
                     System.err.println("Device has been rate limited. Adding reduction of download attempts for this device.");
                     Sentry.captureMessage("Device has been rate limited. Adding reduction of download attempts for this device. " + urlToDownload);
-                    disableScryfallDownload = true;
+                    // Don't try to download from scryfall for 5 minutes
+                    scryfallCooldownTime = new Date(System.currentTimeMillis() + TimeUnit.MINUTES.toMillis(5));
                 }
 
-                // TODO SHould we be returning the status codes and doing something different based off 200 or whatever?
                 return false;
             }
 
