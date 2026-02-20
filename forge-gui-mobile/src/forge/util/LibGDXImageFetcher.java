@@ -43,8 +43,23 @@ public class LibGDXImageFetcher extends ImageFetcher {
                 newdespath = newdespath.replace(".jpg", ".fullborder.jpg"); //fix planes/phenomenon for round border options
             URL url = new URL(urlToDownload);
             System.out.println("Attempting to fetch: " + url);
-            java.net.URLConnection c = url.openConnection();
+            HttpURLConnection c = (HttpURLConnection) url.openConnection();
             c.setRequestProperty("User-Agent", BuildInfo.getUserAgent());
+
+            int responseCode = c.getResponseCode();
+            String responseMessage = c.getResponseMessage();
+            System.out.println("HTTP Response: " + responseCode + " " + responseMessage + " for URL: " + urlToDownload);
+            if (responseCode != HttpURLConnection.HTTP_OK) {
+                System.err.println("Failed to fetch image. HTTP code: " + responseCode + " (" + responseMessage + ") for URL: " + urlToDownload);
+                c.disconnect();
+
+                if (responseCode == 429) {
+                    System.err.println("Device has been rate limited. Adding reduction of download attempts for this device.");
+                }
+
+                // TODO SHould we be returning the status codes and doing something different based off 200 or whatever?
+                return false;
+            }
 
             InputStream is = c.getInputStream();
             // First, save to a temporary file so that nothing tries to read
@@ -58,6 +73,7 @@ public class LibGDXImageFetcher extends ImageFetcher {
                 is.close();
             }
             destFile.moveTo(new FileHandle(newdespath));
+            c.disconnect();
 
             System.out.println("Saved image to " + newdespath);
             GuiBase.getInterface().invokeInEdtLater(notifyObservers);
