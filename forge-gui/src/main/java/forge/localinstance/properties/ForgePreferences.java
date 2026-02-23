@@ -17,8 +17,13 @@
  */
 package forge.localinstance.properties;
 
+import java.util.EnumSet;
+import java.util.Set;
+import java.util.StringJoiner;
+
 import forge.MulliganDefs;
 import forge.game.GameLogEntryType;
+import forge.game.GameLogVerbosity;
 
 public class ForgePreferences extends PreferencesStore<ForgePreferences.FPref> {
 
@@ -217,7 +222,9 @@ public class ForgePreferences extends PreferencesStore<ForgePreferences.FPref> {
 
         DEV_MODE_ENABLED ("false"),
         DEV_WORKSHOP_SYNTAX ("false"),
-        DEV_LOG_ENTRY_TYPE (GameLogEntryType.DAMAGE.toString()),
+        DEV_LOG_ENTRY_TYPE (GameLogVerbosity.MEDIUM.name()),
+        DEV_LOG_CUSTOM_TYPES (defaultCustomLogTypes()),
+        UI_LOG_SHOW_CARD_IMAGES ("true"),
 
         LOAD_CARD_SCRIPTS_LAZILY ("false"),
         LOAD_ARCHIVED_FORMATS ("false"),
@@ -307,6 +314,14 @@ public class ForgePreferences extends PreferencesStore<ForgePreferences.FPref> {
             return strDefaultVal;
         }
 
+        private static String defaultCustomLogTypes() {
+            StringJoiner sj = new StringJoiner(",");
+            for (GameLogEntryType t : GameLogEntryType.values()) {
+                sj.add(t.name());
+            }
+            return sj.toString();
+        }
+
         public static FPref[] CONSTRUCTED_DECK_STATES = {
             CONSTRUCTED_P1_DECK_STATE, CONSTRUCTED_P2_DECK_STATE,
             CONSTRUCTED_P3_DECK_STATE, CONSTRUCTED_P4_DECK_STATE,
@@ -343,6 +358,64 @@ public class ForgePreferences extends PreferencesStore<ForgePreferences.FPref> {
     public ForgePreferences() {
         super(ForgeConstants.MAIN_PREFS_FILE, FPref.class);
         migrateShortcutDefaults();
+        migrateLogVerbosity();
+    }
+
+    /** Migrate old GameLogEntryType values to GameLogVerbosity presets. */
+    private void migrateLogVerbosity() {
+        final String stored = getPref(FPref.DEV_LOG_ENTRY_TYPE);
+        try {
+            GameLogVerbosity.valueOf(stored); // strict check for enum name
+            return; // already a valid verbosity preset
+        } catch (IllegalArgumentException ignored) {}
+        // Also accept caption format ("High" etc.) from combobox storage
+        for (GameLogVerbosity v : GameLogVerbosity.values()) {
+            if (v.toString().equals(stored)) {
+                setPref(FPref.DEV_LOG_ENTRY_TYPE, v.name());
+                save();
+                return;
+            }
+        }
+        // Old value is a GameLogEntryType name — map to a preset
+        try {
+            int ordinal = GameLogEntryType.valueOf(stored).ordinal();
+            String mapped = ordinal <= 8 ? GameLogVerbosity.LOW.name()
+                          : ordinal <= 14 ? GameLogVerbosity.MEDIUM.name()
+                          : GameLogVerbosity.HIGH.name();
+            setPref(FPref.DEV_LOG_ENTRY_TYPE, mapped);
+            save();
+        } catch (IllegalArgumentException ignored) {
+            // Unrecognized value — reset to default
+            setPref(FPref.DEV_LOG_ENTRY_TYPE, FPref.DEV_LOG_ENTRY_TYPE.getDefault());
+            save();
+        }
+    }
+
+    /** Parse the custom log types preference into a Set. */
+    public Set<GameLogEntryType> getCustomLogTypes() {
+        final String stored = getPref(FPref.DEV_LOG_CUSTOM_TYPES);
+        if (stored == null || stored.isEmpty()) {
+            return EnumSet.allOf(GameLogEntryType.class);
+        }
+        final EnumSet<GameLogEntryType> types = EnumSet.noneOf(GameLogEntryType.class);
+        for (String name : stored.split(",")) {
+            try {
+                types.add(GameLogEntryType.valueOf(name.trim()));
+            } catch (IllegalArgumentException ignored) {}
+        }
+        return types;
+    }
+
+    /** Serialize and save the custom log types preference. */
+    public void setCustomLogTypes(final Set<GameLogEntryType> types) {
+        final StringJoiner sj = new StringJoiner(",");
+        for (GameLogEntryType t : GameLogEntryType.values()) {
+            if (types.contains(t)) {
+                sj.add(t.name());
+            }
+        }
+        setPref(FPref.DEV_LOG_CUSTOM_TYPES, sj.toString());
+        save();
     }
 
     /**
