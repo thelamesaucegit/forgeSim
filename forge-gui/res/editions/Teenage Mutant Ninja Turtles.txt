@@ -188,7 +188,7 @@ Type=Expansion
 181 R Turtle Van @Jakob Eirich
 182 R Weather Maker @Florent Lebrun
 183 L Dimension X @Maël Ollivier-Henry
-184 C Escape Tunnel @Aenami
+184 L Escape Tunnel @Aenami
 185 L Foot Headquarters @Hokyoung Kim
 186 L Illegitimate Business @Miklós Ligeti
 187 L Mutant Town @Josu Solano
