@@ -66,45 +66,40 @@ public final class GamePlayerUtil {
     public static LobbyPlayer createAiPlayer(final String name, final int avatarIndex, final int sleeveIndex, final Set<AIOption> options) {
         return createAiPlayer(name, avatarIndex, sleeveIndex, options, "");
     }
-    public static LobbyPlayer createAiPlayer(final String name, final int avatarIndex, final int sleeveIndex, final Set<AIOption> options, final String profileOverride) {
-        final LobbyPlayerAi player = new LobbyPlayerAi(name, options);
+    // In GamePlayerUtil.java, this is the full and correct body for the final createAiPlayer method.
 
-        // TODO: implement specific AI profiles for quest mode.
-        String profile = "";
-        if (profileOverride == null || profileOverride.isEmpty()) {
-            String lastProfileChosen = FModel.getPreferences().getPref(FPref.UI_CURRENT_AI_PROFILE);
-            if (!AiProfileUtil.getProfilesDisplayList().contains(lastProfileChosen)) {
-                System.out.println("[AI Preferences] Unknown profile " + lastProfileChosen + " was requested, resetting to default.");
-                lastProfileChosen = "Default";
-                FModel.getPreferences().setPref(FPref.UI_CURRENT_AI_PROFILE, "Default");
-                FModel.getPreferences().save();
-            }
-            player.setRotateProfileEachGame(lastProfileChosen.equals(AiProfileUtil.AI_PROFILE_RANDOM_DUEL));
-            if (lastProfileChosen.equals(AiProfileUtil.AI_PROFILE_RANDOM_MATCH)) {
-                lastProfileChosen = AiProfileUtil.getRandomProfile();
-            }
-            profile = lastProfileChosen;
+public static LobbyPlayer createAiPlayer(final String name, final int avatarIndex, final int sleeveIndex, final Set<AIOption> options, final String profileOverride) {
+    final LobbyPlayerAi player = new LobbyPlayerAi(name, options);
+    String profileToUse;
+
+    // This logic path is for our simulation CLI.
+    // It checks if a specific profile was passed from the -a flag.
+    if (profileOverride != null && !profileOverride.isEmpty()) {
+        System.out.println("[AI DEBUG] CLI profile override detected for " + name + ": '" + profileOverride + "'");
+
+        // Check if the provided profile actually exists in the AI Registry
+        if (AiProfileUtil.getProfilesDisplayList().contains(profileOverride)) {
+            System.out.println("[AI DEBUG] SUCCESS: Profile '" + profileOverride + "' found and assigned.");
+            profileToUse = profileOverride;
         } else {
-    // This is our custom logic path for the simulation CLI
-    System.out.println("[AI DEBUG] CLI profile override detected: '" + profileOverride + "'");
-    
-    // We must check if the provided profile actually exists in the AI Registry
-    if (AiProfileUtil.getProfilesDisplayList().contains(profileOverride)) {
-        System.out.println("[AI DEBUG] SUCCESS: Profile '" + profileOverride + "' found and assigned.");
-        profile = profileOverride;
+            // If the profile doesn't exist, log the failure and fall back to the default
+            System.out.println("[AI DEBUG] FAILED: Profile '" + profileOverride + "' not found. Falling back to default AI for " + name + ".");
+            profileToUse = "Default"; // A known, safe default profile
+        }
     } else {
-        // If the profile doesn't exist, log the failure and fall back to the default
-        System.out.println("[AI DEBUG] FAILED: Profile '" + profileOverride + "' not found. Falling back to default AI.");
-        profile = "Default"; // Or whatever Forge's default profile is named
+        // This block handles the case where no -a flag is provided for a player in the CLI.
+        // We will default them to the "Default" AI instead of reading user preferences from a file.
+        System.out.println("[AI DEBUG] No profile specified for " + name + ". Assigning default AI.");
+        profileToUse = "Default";
     }
+
+    // Set the chosen profile, avatar, and sleeve index, then return the player.
+    player.setAiProfile(profileToUse);
+    player.setAvatarIndex(avatarIndex);
+    player.setSleeveIndex(sleeveIndex);
+    return player;
 }
-// The assertion and final assignment remain, now using our validated 'profile' variable
-assert (!profile.isEmpty());
-player.setAiProfile(profile);
-        player.setAvatarIndex(avatarIndex);
-        player.setSleeveIndex(sleeveIndex);
-        return player;
-    }
+
 
     public static void setPlayerName() {
         final String oldPlayerName = FModel.getPreferences().getPref(FPref.PLAYER_NAME);
