@@ -160,6 +160,8 @@ public class AiProfileUtil {
         final List<String> availableProfiles = new ArrayList<>();
 
         final File dir = new File(AI_PROFILE_DIR);
+            System.out.println("[AI DEBUG] Attempting to read AI profiles from directory: " + dir.getAbsolutePath());
+
         final String[] children = dir.list();
         if (children == null) {
             System.err.println("AIProfile > can't find AI profile directory!");
