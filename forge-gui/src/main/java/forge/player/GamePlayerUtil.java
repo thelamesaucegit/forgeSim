@@ -1,0 +1,202 @@
+package forge.player;
+
+import forge.LobbyPlayer;
+import forge.ai.AIOption;
+import forge.ai.AiProfileUtil;
+import forge.ai.LobbyPlayerAi;
+import forge.gui.GuiBase;
+import forge.gui.util.SOptionPane;
+import forge.localinstance.properties.ForgeNetPreferences;
+import forge.localinstance.properties.ForgePreferences.FPref;
+import forge.model.FModel;
+import forge.util.GuiDisplayUtil;
+import forge.util.Localizer;
+import forge.util.MyRandom;
+import org.apache.commons.lang3.StringUtils;
+
+import java.util.Set;
+
+
+public final class GamePlayerUtil {
+    private GamePlayerUtil() { }
+    private static Localizer localizer = Localizer.getInstance();
+    private static final LobbyPlayer guiPlayer = new LobbyPlayerHuman("Human");
+
+    public static LobbyPlayer getGuiPlayer() {
+        return guiPlayer;
+    }
+
+    public static LobbyPlayer getGuiPlayer(final String name, final int avatarIndex, final int sleeveIndex, final boolean writePref) {
+        if (writePref) {
+            if (!name.equals(guiPlayer.getName())) {
+                guiPlayer.setName(name);
+                FModel.getPreferences().setPref(FPref.PLAYER_NAME, name);
+                FModel.getPreferences().save();
+            }
+            guiPlayer.setAvatarIndex(avatarIndex);
+            guiPlayer.setSleeveIndex(sleeveIndex);
+            return guiPlayer;
+        }
+        //use separate LobbyPlayerHuman instance for human players beyond first
+        return new LobbyPlayerHuman(name, avatarIndex, sleeveIndex);
+    }
+
+    public static LobbyPlayer getQuestPlayer() {
+        return guiPlayer; //TODO: Make this a separate player
+    }
+
+    public static LobbyPlayer createAiPlayer() {
+        return createAiPlayer(GuiDisplayUtil.getRandomAiName());
+    }
+
+    public static LobbyPlayer createAiPlayer(final String name) {
+        final int avatarCount = GuiBase.getInterface().getAvatarCount();
+        final int sleeveCount = GuiBase.getInterface().getSleevesCount();
+        return createAiPlayer(name, avatarCount == 0 ? 0 : MyRandom.getRandom().nextInt(avatarCount), sleeveCount == 0 ? 0 : MyRandom.getRandom().nextInt(sleeveCount));
+    }
+
+    public static LobbyPlayer createAiPlayer(final String name, final String profileOverride) {
+        final int avatarCount = GuiBase.getInterface().getAvatarCount();
+        final int sleeveCount = GuiBase.getInterface().getSleevesCount();
+        return createAiPlayer(name, avatarCount == 0 ? 0 : MyRandom.getRandom().nextInt(avatarCount), sleeveCount == 0 ? 0 : MyRandom.getRandom().nextInt(sleeveCount), null, profileOverride);
+    }
+
+    public static LobbyPlayer createAiPlayer(final String name, final int avatarIndex) {
+        final int sleeveCount = GuiBase.getInterface().getSleevesCount();
+        return createAiPlayer(name, avatarIndex, sleeveCount == 0 ? 0 : MyRandom.getRandom().nextInt(sleeveCount), null, "");
+    }
+
+    public static LobbyPlayer createAiPlayer(final String name, final int avatarIndex, final int sleeveIndex) {
+        return createAiPlayer(name, avatarIndex, sleeveIndex, null, "");
+    }
+
+    public static LobbyPlayer createAiPlayer(final String name, final int avatarIndex, final int sleeveIndex, final Set<AIOption> options) {
+        return createAiPlayer(name, avatarIndex, sleeveIndex, options, "");
+    }
+
+    // This is the full and correct body for the final createAiPlayer method.
+    public static LobbyPlayer createAiPlayer(final String name, final int avatarIndex, final int sleeveIndex, final Set<AIOption> options, final String profileOverride) {
+        final LobbyPlayerAi player = new LobbyPlayerAi(name, options);
+        String profileToUse;
+
+        // This logic path is for our simulation CLI.
+        // It checks if a specific profile was passed from the -a flag.
+        if (profileOverride != null && !profileOverride.isEmpty()) {
+            System.out.println("[AI DEBUG] CLI profile override detected for " + name + ": '" + profileOverride + "'");
+
+            // --- AI Profile Name Normalization ---
+            // Strips the ".ai" extension and any bracketed descriptions for validation.
+            // For example, "TheWild [Experimenter.ai]" becomes "TheWild".
+            String normalizedProfile = profileOverride.replaceAll("\\s*\\[.*\\]|\\.ai$", "").trim();
+            System.out.println("[AI DEBUG] Normalized profile name for validation: '" + normalizedProfile + "'");
+
+
+            // Check if the normalized profile actually exists in the AI Registry
+            if (AiProfileUtil.getAvailableProfiles().contains(normalizedProfile)) {
+                System.out.println("[AI DEBUG] SUCCESS: Profile '" + normalizedProfile + "' found and assigned.");
+                profileToUse = normalizedProfile;
+            } else {
+                // If the profile doesn't exist, log the failure and fall back to the default
+                System.out.println("[AI DEBUG] FAILED: Profile '" + normalizedProfile + "' not found in available profiles. Falling back to default AI for " + name + ".");
+                System.out.println("[AI DEBUG] Available profiles are: " + AiProfileUtil.getAvailableProfiles());
+                profileToUse = "Default"; // A known, safe default profile
+            }
+        } else {
+            // This block handles the case where no -a flag is provided for a player in the CLI.
+            // We will default them to the "Default" AI instead of reading user preferences from a file.
+            System.out.println("[AI DEBUG] No profile specified for " + name + ". Assigning default AI.");
+            profileToUse = "Default";
+        }
+
+        // Set the chosen profile, avatar, and sleeve index, then return the player.
+        player.setAiProfile(profileToUse);
+        player.setAvatarIndex(avatarIndex);
+        player.setSleeveIndex(sleeveIndex);
+        return player;
+    }
+
+
+    public static void setPlayerName() {
+        final String oldPlayerName = FModel.getPreferences().getPref(FPref.PLAYER_NAME);
+        String newPlayerName;
+        try {
+            if (StringUtils.isBlank(oldPlayerName)) {
+                newPlayerName = getVerifiedPlayerName(getPlayerNameUsingFirstTimePrompt(), oldPlayerName);
+            } else {
+                newPlayerName = getVerifiedPlayerName(getPlayerNameUsingStandardPrompt(oldPlayerName), oldPlayerName);
+            }
+        } catch (final IllegalStateException ise){
+            //now is not a good time for this...
+            newPlayerName = StringUtils.isBlank(oldPlayerName) ? "Human" : oldPlayerName;
+        }
+        FModel.getPreferences().setPref(FPref.PLAYER_NAME, newPlayerName);
+        FModel.getPreferences().save();
+        if (StringUtils.isBlank(oldPlayerName) && !newPlayerName.equals("Human")) {
+            showThankYouPrompt(newPlayerName);
+        }
+    }
+
+    public static void setServerPort() {
+        final int oldPort = FModel.getNetPreferences().getPrefInt(ForgeNetPreferences.FNetPref.NET_PORT);
+        int newPort = getServerPortPrompt(oldPort);
+        FModel.getNetPreferences().setPref(ForgeNetPreferences.FNetPref.NET_PORT, String.valueOf(newPort));
+        FModel.getNetPreferences().save();
+    }
+
+    private static void showThankYouPrompt(final String playerName) {
+        SOptionPane.showMessageDialog("Thank you, " + playerName + ". "
+                + "You will not be prompted again but you can change\\n"
+                + "your name at any time using the \"Player Name\" setting in Preferences\\n"
+                + "or via the constructed match setup screen\\n");
+    }
+
+    private static String getPlayerNameUsingFirstTimePrompt() {
+        return SOptionPane.showInputDialog(
+                "By default, Forge will refer to you as the \"Human\" during gameplay.\\n" +
+                        "If you would prefer a different name please enter it now.",
+                "Personalize Forge Gameplay",
+                SOptionPane.QUESTION_ICON);
+    }
+
+    private static String getPlayerNameUsingStandardPrompt(final String playerName) {
+        return SOptionPane.showInputDialog(
+                "Please enter a new name. (alpha-numeric only)",
+                "Personalize Forge Gameplay",
+                null,
+                playerName);
+    }
+
+    private static Integer getServerPortPrompt(final Integer serverPort) {
+        String input = SOptionPane.showInputDialog(
+                localizer.getMessage("sOPServerPromptMessage"),
+                localizer.getMessage("sOPServerPromptTitle"),
+                null,
+                serverPort.toString(),
+                null,
+                true
+        );
+        Integer port;
+        try {
+            port = Integer.parseInt(input);
+        } catch (NumberFormatException nfe) {
+            SOptionPane.showErrorDialog(localizer.getMessage("sOPServerPromptError", input));
+            return serverPort;
+        }
+        if(port < 0 || port > 65535) {
+            SOptionPane.showErrorDialog(localizer.getMessage("sOPServerPromptError", input));
+            return serverPort;
+        }
+        return  port;
+    }
+
+    private static String getVerifiedPlayerName(String newName, final String oldName) {
+        if (newName == null || !StringUtils.isAlphanumericSpace(newName)) {
+            newName = (StringUtils.isBlank(oldName) ? "Human" : oldName);
+        } else if (StringUtils.isWhitespace(newName)) {
+            newName = "Human";
+        } else {
+            newName = newName.trim();
+        }
+        return newName;
+    }
+}
