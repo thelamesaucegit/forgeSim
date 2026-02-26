@@ -124,7 +124,14 @@ public class SimulateMatch {
                 } else {
                     rp = new RegisteredPlayer(d);
                 }
-                rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1));
+// --- CUSTOM AI PROFILE INJECTION ---
+                String aiProfile = ""; 
+                if (params.containsKey("a") && (i - 1) < params.get("a").size()) {
+                    aiProfile = params.get("a").get(i - 1);
+                }
+                
+                // Uses the overloaded method to inject the profile Override
+rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, java.util.EnumSet.noneOf(forge.game.card.CardEdition.class), aiProfile));
                 pp.add(rp);
                 i++;
             }
@@ -157,9 +164,10 @@ public class SimulateMatch {
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -a [profile1] [profile2] -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
+        System.out.println("\ta - AI profiles to use for the corresponding decks (e.g., -a Aggro Control). Defaults to standard AI if omitted.");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
         System.out.println("\tD - absolute directory to load decks from");
         System.out.println("\tN - number of games, defaults to 1 (Ignores match setting)");
@@ -231,7 +239,13 @@ public class SimulateMatch {
                 }
 
                 deckGroup.addAiDeck(d);
-                players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0), numPlayers));
+                 String aiProfile = "";
+                if (params.containsKey("a") && numPlayers < params.get("a").size()) {
+                    aiProfile = params.get("a").get(numPlayers);
+                }
+                
+               players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0, 0, java.util.EnumSet.noneOf(forge.game.card.CardEdition.class), aiProfile), numPlayers));
+
                 numPlayers++;
             }
         }
