@@ -85,13 +85,22 @@ public final class GamePlayerUtil {
             }
             profile = lastProfileChosen;
         } else {
-            profile = profileOverride;
-        }
-
-        assert (!profile.isEmpty()); // TODO test instead of assert
-
-        System.out.println("[AI Preferences] using profile " + profile);
-        player.setAiProfile(profile);
+    // This is our custom logic path for the simulation CLI
+    System.out.println("[AI DEBUG] CLI profile override detected: '" + profileOverride + "'");
+    
+    // We must check if the provided profile actually exists in the AI Registry
+    if (AiProfileUtil.getProfilesDisplayList().contains(profileOverride)) {
+        System.out.println("[AI DEBUG] SUCCESS: Profile '" + profileOverride + "' found and assigned.");
+        profile = profileOverride;
+    } else {
+        // If the profile doesn't exist, log the failure and fall back to the default
+        System.out.println("[AI DEBUG] FAILED: Profile '" + profileOverride + "' not found. Falling back to default AI.");
+        profile = "Default"; // Or whatever Forge's default profile is named
+    }
+}
+// The assertion and final assignment remain, now using our validated 'profile' variable
+assert (!profile.isEmpty());
+player.setAiProfile(profile);
         player.setAvatarIndex(avatarIndex);
         player.setSleeveIndex(sleeveIndex);
         return player;
