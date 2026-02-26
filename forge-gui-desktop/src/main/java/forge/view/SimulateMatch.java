@@ -4,9 +4,7 @@ import java.io.File;
 import java.util.*;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
-
 import org.apache.commons.lang3.time.StopWatch;
-
 import forge.LobbyPlayer;
 import forge.deck.Deck;
 import forge.deck.DeckGroup;
@@ -34,29 +32,25 @@ import forge.util.WordUtil;
 import forge.util.storage.IStorage;
 
 public class SimulateMatch {
+
     public static void simulate(String[] args) {
         FModel.initialize(null, null);
-
         System.out.println("Simulation mode");
         if (args.length < 4) {
             argumentHelp();
             return;
         }
-
         final Map<String, List<String>> params = new HashMap<>();
         List<String> options = null;
-
         for (int i = 1; i < args.length; i++) {
             // "sim" is in the 0th slot
             final String a = args[i];
-
             if (a.charAt(0) == '-') {
                 if (a.length() < 2) {
                     System.err.println("Error at argument " + a);
                     argumentHelp();
                     return;
                 }
-
                 options = new ArrayList<>();
                 params.put(a.substring(1), options);
             } else if (options != null) {
@@ -80,7 +74,6 @@ public class SimulateMatch {
         }
 
         boolean outputGamelog = !params.containsKey("q");
-
         GameType type = GameType.Constructed;
         if (params.containsKey("f")) {
             type = GameType.valueOf(WordUtil.capitalize(params.get("f").get(0)));
@@ -88,7 +81,6 @@ public class SimulateMatch {
 
         GameRules rules = new GameRules(type);
         rules.setAppliedVariants(EnumSet.of(type));
-
         if (matchSize != 0) {
             rules.setGamesPerMatch(matchSize);
         }
@@ -101,7 +93,6 @@ public class SimulateMatch {
 
         List<RegisteredPlayer> pp = new ArrayList<>();
         StringBuilder sb = new StringBuilder();
-
         int i = 1;
 
         if (params.containsKey("d")) {
@@ -111,27 +102,34 @@ public class SimulateMatch {
                     System.out.println(TextUtil.concatNoSpace("Could not load deck - ", deck, ", match cannot start"));
                     return;
                 }
+
                 if (i > 1) {
                     sb.append(" vs ");
                 }
-                String name = TextUtil.concatNoSpace("Ai(", String.valueOf(i), ")-", d.getName());
-                sb.append(name);
+
+                // --- CUSTOM AI PROFILE INJECTION ---
+                String aiProfile = "";
+                if (params.containsKey("a") && (i - 1) < params.get("a").size()) {
+                    aiProfile = params.get("a").get(i - 1);
+                }
+
+                String playerName = TextUtil.concatNoSpace("Ai(", String.valueOf(i), ")-", d.getName());
+                // New Logging: Associate AI Profile with the deck name
+                sb.append(playerName);
+                if (!aiProfile.isEmpty()) {
+                    sb.append(" (AI: ").append(aiProfile).append(")");
+                }
+
 
                 RegisteredPlayer rp;
-
                 if (type.equals(GameType.Commander)) {
                     rp = RegisteredPlayer.forCommander(d);
                 } else {
                     rp = new RegisteredPlayer(d);
                 }
-// --- CUSTOM AI PROFILE INJECTION ---
-                String aiProfile = ""; 
-                if (params.containsKey("a") && (i - 1) < params.get("a").size()) {
-                    aiProfile = params.get("a").get(i - 1);
-                }
-                
+
                 // Uses the overloaded method to inject the profile Override
-rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
+                rp.setPlayer(GamePlayerUtil.createAiPlayer(playerName, i - 1, 0, null, aiProfile));
                 pp.add(rp);
                 i++;
             }
@@ -142,11 +140,9 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
         }
 
         sb.append(" - ").append(Lang.nounWithNumeral(nGames, "game")).append(" of ").append(type);
-
         System.out.println(sb.toString());
 
         Match mc = new Match(rules, pp, "Test");
-
         if (matchSize != 0) {
             int iGame = 0;
             while (!mc.isMatchOver()) {
@@ -159,7 +155,6 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
                 simulateSingleMatch(mc, iGame, outputGamelog);
             }
         }
-
         System.out.flush();
     }
 
@@ -167,7 +162,7 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
         System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -a [profile1] [profile2] -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -q");
         System.out.println("\tsim - stands for simulation mode");
         System.out.println("\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
-        System.out.println("\ta - AI profiles to use for the corresponding decks (e.g., -a Aggro Control). Defaults to standard AI if omitted.");
+        System.out.println("\ta - AI profiles to use for the corresponding decks (e.g., -a \"Aggro\" \"Control\"). Defaults to standard AI if omitted.");
         System.out.println("\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
         System.out.println("\tD - absolute directory to load decks from");
         System.out.println("\tN - number of games, defaults to 1 (Ignores match setting)");
@@ -182,7 +177,6 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
     public static void simulateSingleMatch(final Match mc, int iGame, boolean outputGamelog) {
         final StopWatch sw = new StopWatch();
         sw.start();
-
         final Game g1 = mc.createGame();
         // will run match in the same thread
         try {
@@ -210,6 +204,7 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
             log = g1.getGameLog().getLogEntries(GameLogEntryType.MATCH_RESULTS);
         }
         Collections.reverse(log);
+
         for (GameLogEntry l : log) {
             System.out.println(l);
         }
@@ -218,7 +213,7 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
         if (g1.getOutcome().isDraw()) {
             System.out.printf("\nGame Result: Game %d ended in a Draw! Took %d ms.%n", 1 + iGame, sw.getTime());
         } else {
-            System.out.printf("\nGame Result: Game %d ended in %d ms. %s has won!\n%n", 1 + iGame, sw.getTime(), g1.getOutcome().getWinningLobbyPlayer().getName());
+            System.out.printf("\nGame Result: Game %d ended in %d ms. %s has won!\n\n", 1 + iGame, sw.getTime(), g1.getOutcome().getWinningLobbyPlayer().getName());
         }
     }
 
@@ -226,10 +221,10 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
         String tournament = params.get("t").get(0);
         AbstractTournament tourney = null;
         int matchPlayers = params.containsKey("p") ? Integer.parseInt(params.get("p").get(0)) : 2;
-
         DeckGroup deckGroup = new DeckGroup("SimulatedTournament");
         List<TournamentPlayer> players = new ArrayList<>();
         int numPlayers = 0;
+
         if (params.containsKey("d")) {
             for (String deck : params.get("d")) {
                 Deck d = deckFromCommandLineParameter(deck, rules.getGameType());
@@ -237,15 +232,13 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
                     System.out.println(TextUtil.concatNoSpace("Could not load deck - ", deck, ", match cannot start"));
                     return;
                 }
-
                 deckGroup.addAiDeck(d);
-                 String aiProfile = "";
+                String aiProfile = "";
                 if (params.containsKey("a") && numPlayers < params.get("a").size()) {
                     aiProfile = params.get("a").get(numPlayers);
                 }
-                
-               players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0, 0, null, aiProfile), numPlayers));
 
+                players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0, 0, null, aiProfile), numPlayers));
                 numPlayers++;
             }
         }
@@ -281,18 +274,19 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
         } else if ("swiss".equalsIgnoreCase(tournament)) {
             tourney = new TournamentSwiss(players, matchPlayers);
         }
+
         if (tourney == null) {
             System.out.println("Failed to initialize tournament, bailing out");
             return;
         }
 
         tourney.initializeTournament();
-
         String lastWinner = "";
         int curRound = 0;
         System.out.println(TextUtil.concatNoSpace("Starting a ", tournament, " tournament with ",
                 String.valueOf(numPlayers), " players over ",
                 String.valueOf(tourney.getTotalRounds()), " rounds"));
+
         while (!tourney.isTournamentOver()) {
             if (tourney.getActiveRound() != curRound) {
                 if (curRound != 0) {
@@ -301,7 +295,6 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
                 curRound = tourney.getActiveRound();
                 System.out.println();
                 System.out.println(TextUtil.concatNoSpace("Round ", String.valueOf(curRound), " Pairings:"));
-
                 for (TournamentPairing pairing : tourney.getActivePairings()) {
                     System.out.println(pairing.outputHeader());
                 }
@@ -310,7 +303,6 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
 
             TournamentPairing pairing = tourney.getNextPairing();
             List<RegisteredPlayer> regPlayers = AbstractTournament.registerTournamentPlayers(pairing, deckGroup);
-
             StringBuilder sb = new StringBuilder();
             sb.append("Round ").append(tourney.getActiveRound()).append(" - ");
             sb.append(pairing.outputHeader());
@@ -318,7 +310,6 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
 
             if (!pairing.isBye()) {
                 Match mc = new Match(rules, regPlayers, "TourneyMatch");
-
                 int exceptions = 0;
                 int iGame = 0;
                 while (!mc.isMatchOver()) {
@@ -336,7 +327,6 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
                             System.out.println("Game threw exception. Abandoning game and continuing...");
                         }
                     }
-
                 }
                 LobbyPlayer winner = mc.getWinner().getPlayer();
                 for (TournamentPlayer tp : pairing.getPairedPlayers()) {
@@ -349,7 +339,6 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
                     }
                 }
             }
-
             tourney.reportMatchCompletion(pairing);
         }
         tourney.outputTournamentResults();
@@ -364,25 +353,20 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
         if (dotpos > 0 && dotpos == deckname.length() - 4) {
             String baseDir = type.equals(GameType.Commander) ?
                     ForgeConstants.DECK_COMMANDER_DIR : ForgeConstants.DECK_CONSTRUCTED_DIR;
-
             File f = new File(baseDir + deckname);
             if (!f.exists()) {
                 System.out.println("No deck found in " + baseDir);
             }
-
             return DeckSerializer.fromFile(f);
         }
 
         IStorage<Deck> deckStore = null;
-
         // Add other game types here...
         if (type.equals(GameType.Commander)) {
             deckStore = FModel.getDecks().getCommander();
         } else {
             deckStore = FModel.getDecks().getConstructed();
         }
-
         return deckStore.get(deckname);
     }
-
 }
