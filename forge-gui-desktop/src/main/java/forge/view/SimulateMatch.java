@@ -131,7 +131,7 @@ public class SimulateMatch {
                 }
                 
                 // Uses the overloaded method to inject the profile Override
-rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, java.util.EnumSet.noneOf(forge.game.card.CardEdition.class), aiProfile));
+rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, null, aiProfile));
                 pp.add(rp);
                 i++;
             }
@@ -244,7 +244,7 @@ rp.setPlayer(GamePlayerUtil.createAiPlayer(name, i - 1, 0, java.util.EnumSet.non
                     aiProfile = params.get("a").get(numPlayers);
                 }
                 
-               players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0, 0, java.util.EnumSet.noneOf(forge.game.card.CardEdition.class), aiProfile), numPlayers));
+               players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0, 0, null, aiProfile), numPlayers));
 
                 numPlayers++;
             }
