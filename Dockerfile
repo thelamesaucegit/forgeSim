@@ -1,51 +1,45 @@
 # ----------------- Stage 1: Build the full Forge project with Maven -----------------
-# We use an official Maven image which includes the JDK, perfect for compiling Forge.
+# We use an official Maven image which includes the JDK and Git.
 FROM maven:3.8-openjdk-17 AS javabuilder
 WORKDIR /usr/src/app
 
-# Copy the entire project context into the builder stage.
-# The .dockerignore file will prevent node_modules, etc., from being copied.
-COPY . .
+# --- THIS IS THE MAJOR CHANGE ---
+# Instead of copying local files, we clone the repository directly.
+# The --recursive flag is CRITICAL as it automatically initializes and clones all submodules.
+# You will need to replace the URL with the actual URL of your Git repository.
+RUN git clone --recursive https://github.com/your-username/your-forge-repo.git .
 
-# Run the Maven package command. This will compile all modules (forge-core, forge-game, etc.)
-# and create the target JAR file in its specific subdirectory.
+# Now that all source code (including submodules) is present, run the Maven package command.
 RUN mvn package -DskipTests
 
 # ----------------- Stage 2: Build the TypeScript server code -----------------
+# This stage does not change. It still builds your Node.js code from your local files.
 FROM node:20-bookworm-slim AS nodebuilder
 WORKDIR /app
 COPY package*.json ./
 RUN npm install
-
 COPY tsconfig.json .
 COPY server.ts .
 COPY parser.ts .
-
 RUN npm run build
 
 # ----------------- Stage 3: Assemble the final, lean runtime image -----------------
+# This stage does not change. It assembles the artifacts from the previous stages.
 FROM node:20-bookworm-slim
 WORKDIR /app
 
-# We still need Java to run the JAR, but only the lightweight JRE.
 RUN apt-get update && apt-get install -y openjdk-17-jre-headless && rm -rf /var/lib/apt/lists/*
 
-# Copy production Node.js dependencies from the 'nodebuilder' stage
 COPY --from=nodebuilder /app/package*.json ./
 RUN npm install --omit=dev
-
-# Copy the COMPILED JavaScript from the 'nodebuilder' stage
 COPY --from=nodebuilder /app/dist ./dist
 
-# --- The Key Changes Are Here ---
-
-# 1. Copy the specific, fat JAR from the javabuilder and rename it to forgeSim.jar in our root.
+# Copy the JAR from the javabuilder stage
 COPY --from=javabuilder /usr/src/app/forge-gui-desktop/target/forge-gui-desktop-2.0.11-SNAPSHOT-jar-with-dependencies.jar ./forgeSim.jar
 
-# 2. Copy the specific resource folder from the javabuilder's 'forge-gui' module to our root.
+# Copy the resource folder from the javabuilder stage
 COPY --from=javabuilder /usr/src/app/forge-gui/res ./res
 
 EXPOSE 8080
 
-# Run the final compiled JavaScript file directly with node. This does not change.
 CMD ["node", "dist/server.js"]
