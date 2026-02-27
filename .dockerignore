@@ -1,7 +1,19 @@
+# Git
 .git
 .gitignore
+
+# Docker
 .dockerignore
+
+# Node
 node_modules
-dist
-target
+npm-debug.log
+
+# Java / Maven
+target/
 *.jar
+*.war
+
+# IDE files
+.idea/
+.vscode/
