@@ -1,0 +1,7 @@
+Explanation of Key Choices:
+PLAY_AGGRO=false, CHANCE_TO_ATTACK_INTO_TRADE=10, CHANCE_TO_ATKTRADE_WHEN_OPP_HAS_MANA=10: These settings ensure the AI is very conservative with its attacks. It's not looking to trade unless it's a sure thing or the opponent is wide open.
+TRY_TO_HOLD_COMBAT_TRICKS_UNTIL_BLOCK=true, CHANCE_TO_HOLD_COMBAT_TRICKS_UNTIL_BLOCK=85: The AI will try to maximize its combat tricks by holding them until the last possible moment.
+CHANCE_TO_TRADE_TO_SAVE_PLANESWALKER=90, CHANCE_TO_TRADE_DOWN_TO_SAVE_PLANESWALKER=10, THRESHOLD_NONTOKEN_CHUMP_TO_SAVE_PLANESWALKER=100, THRESHOLD_TOKEN_CHUMP_TO_SAVE_PLANESWALKER=120: These emphasize how much this AI values its planeswalkers, willing to sacrifice resources to protect them.
+HOLD_LAND_DROP_FOR_MAIN2_IF_UNUSED=80: The AI will try to hide its land drops until Main 2 if it has nothing else to use mana on in Main 1.
+FLASH_CHANCE_TO_CAST_DUE_TO_ETB_EFFECTS=70, FLASH_CHANCE_TO_CAST_FOR_ETB_BEFORE_MAIN1=5, FLASH_BUFF_AURA_CHANCE_TO_RESPOND_TO_STACK=85: While being cautious in other areas, this AI is very good at using instant-speed abilities, such as flash creatures or flash auras.
+BLINK_RELOAD_PLANESWALKER_CHANCE=40, BLINK_RELOAD_PLANESWALKER_MAX_LOYALTY=3, BLINK_RELOAD_PLANESWALKER_LOYALTY_DIFF=2: This AI will try to use blink spells to reset it's planeswalkers if it is close to losing the loyalty.
