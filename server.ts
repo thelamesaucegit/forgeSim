@@ -5,9 +5,11 @@ import * as path from "path";
 import chokidar from "chokidar";
 import { parseLogLine, getInitialState, GameState } from "./parser.js";
 
+// --- Server State ---
 let simulationStatus: "idle" | "running" | "finished" = "idle";
 let activeGameState: GameState = getInitialState();
 
+// --- WebSocket Server Setup ---
 const wss = new WebSocketServer({ port: 8080 });
 console.log(`[INIT] Sidecar WebSocket server started on port 8080.`);
 console.log(`[INIT] Current working directory: ${process.cwd()}`);
@@ -19,14 +21,6 @@ console.log(`[INIT] Expecting decks directory at: ${FORGE_DECKS_DIR}`);
 // Ensure this directory exists when the server starts up.
 if (!fs.existsSync(FORGE_DECKS_DIR)) {
     console.log(`[INIT] Decks directory not found. Creating it...`);
-    fs.mkdirSync(FORGE_DECKS_DIR, { recursive: true });
-}
-
-// The directory inside the container where Forge expects decks
-const FORGE_DECKS_DIR = path.join(process.cwd(), "res", "decks", "constructed");
-
-// Ensure the directory exists when the server starts
-if (!fs.existsSync(FORGE_DECKS_DIR)) {
     fs.mkdirSync(FORGE_DECKS_DIR, { recursive: true });
 }
 
@@ -46,11 +40,8 @@ wss.on("connection", (ws) => {
             return;
           }
           console.log("[WSS] Processing START_MATCH signal.");
-          // Extract the dynamic payload from the message
           const { deck1, deck2 } = data.payload;
-          // Reset game state for the new match
           activeGameState = getInitialState();
-          // Pass the deck data to the simulation function
           startForgeSimulation(ws, deck1, deck2);
         }
     } catch (e) {
@@ -64,17 +55,18 @@ wss.on("connection", (ws) => {
 });
 
 // --- Forge Simulation Logic ---
-// The function now accepts the dynamic deck data from the WebSocket message
 function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   simulationStatus = "running";
   console.log(`[SIM] Simulation status set to 'running'.`);
 
-
+  // --- THIS IS THE CORRECTED SECTION ---
+  // The paths now correctly use the globally defined FORGE_DECKS_DIR constant
+  const deck1Path = path.join(FORGE_DECKS_DIR, deck1.filename);
+  const deck2Path = path.join(FORGE_DECKS_DIR, deck2.filename);
   const jarPath = path.join(process.cwd(), "forgeSim.jar");
-  const logFileName = "gamelog.txt"; // Forge needs just the filename for the -l flag
+  const logFileName = "gamelog.txt";
   const logFilePath = path.join(process.cwd(), logFileName);
 
-  // Attempt to write the received deck strings to local files for Forge to use
   try {
     console.log(`[SIM] Writing deck 1 to: ${deck1Path}`);
     fs.writeFileSync(deck1Path, deck1.content);
@@ -89,12 +81,10 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
 
   broadcast({ type: "SIMULATION_STARTING" });
 
-  // Clean up log file from previous runs
   if (fs.existsSync(logFilePath)) {
     fs.unlinkSync(logFilePath);
   }
 
-  // Construct the arguments for the Java process
   const javaArgs = [
     "-jar",
     jarPath,
@@ -107,7 +97,6 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
 
   console.log(`[SIM] Spawning Java process with command: java ${javaArgs.join(' ')}`);
   
-  // Pre-flight check: Verify all necessary files exist before attempting to spawn
   if (!fs.existsSync(jarPath)) {
       console.error(`[SIM] FATAL: Cannot find forgeSim.jar at ${jarPath}`);
       broadcast({ type: "ERROR", message: "Internal server error: The forgeSim.jar executable was not found." });
@@ -117,37 +106,37 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
 
   const forgeProcess = spawn("java", javaArgs);
 
-  // Listen for errors during the process spawn itself (e.g., 'java' command not found)
   forgeProcess.on('error', (err) => {
     console.error('[SPAWN_ERROR] Failed to start Java process.', err);
     broadcast({ type: "ERROR", message: "Critical error: Failed to start the simulation engine." });
     simulationStatus = "idle";
   });
 
-  // Use chokidar to watch the log file for new data
   const watcher = chokidar.watch(logFilePath, {
     persistent: true,
-    usePolling: true, // Necessary for some container/filesystem environments
+    usePolling: true,
     interval: 100,
   });
 
   console.log(`[SIM] Watching for log file at: ${logFilePath}`);
 
   let lastSize = 0;
-  watcher.on("change", (filePath) => {
-    fs.stat(filePath, (err, stats) => {
-      if (err) return;
+  watcher.on("change", (path) => {
+    fs.stat(path, (err, stats) => {
+      if (err) {
+        console.error("Error stating file:", err);
+        return;
+      }
       if (stats.size > lastSize) {
-        const stream = fs.createReadStream(filePath, { start: lastSize, end: stats.size, encoding: "utf8" });
-        stream.on("data", (chunk) => processLogChunk(chunk.toString()));
+        const stream = fs.createReadStream(path, { start: lastSize, end: stats.size, encoding: 'utf8' });
+        stream.on('data', (chunk) => processLogChunk(chunk.toString()));
         lastSize = stats.size;
       }
     });
   });
 
-  // Processes new chunks of text from the gamelog.txt
   const processLogChunk = (chunk: string) => {
-    const lines = chunk.split("\n").filter(line => line.trim() !== "");
+    const lines = chunk.split('\n').filter(line => line.trim() !== '');
     for (const line of lines) {
       console.log(`[RAW_FORGE_LOG]: ${line}`);
       const updatedState = parseLogLine(line, activeGameState);
@@ -158,15 +147,13 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
     }
   };
 
-  // Handles the completion of the Forge process
   forgeProcess.on("close", (code) => {
     console.log(`[SIM] Forge process exited with code ${code}`);
     simulationStatus = "finished";
     broadcast({ type: "SIMULATION_COMPLETE", finalState: activeGameState });
-    watcher.close(); // Stop watching the file
+    watcher.close();
   });
 
-  // Captures and broadcasts any errors from the Java process
   forgeProcess.stderr.on('data', (data) => {
     const errorMessage = data.toString();
     console.error(`[FORGE_STDERR]: ${errorMessage}`);
@@ -174,6 +161,7 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   });
 }
 
+// --- Helper to Broadcast to All Connected Clients ---
 function broadcast(data: object) {
   const payload = JSON.stringify(data);
   wss.clients.forEach((client) => {
