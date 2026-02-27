@@ -1,0 +1,23 @@
+{
+  "name": "forge-sidecar-server",
+  "version": "1.0.0",
+  "description": "WebSocket server to manage and parse Forge simulations.",
+  "type": "module",
+  "main": "dist/server.js",
+  "scripts": {
+    "build": "tsc",
+    "start": "node dist/server.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "chokidar": "^3.6.0",
+    "typescript": "^5.4.5",
+    "ws": "^8.17.0"
+  },
+  "devDependencies": {
+    "ts-node": "^10.9.2",
+    "@types/ws": "^8.5.10"
+  }
+}
