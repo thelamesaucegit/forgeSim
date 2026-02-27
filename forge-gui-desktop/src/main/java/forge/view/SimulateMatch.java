@@ -243,25 +243,30 @@ public class SimulateMatch {
             }
         }
 
-        if (params.containsKey("D")) {
-            // Direc
-            String foldName = params.get("D").get(0);
-            File folder = new File(foldName);
-            if (!folder.isDirectory()) {
-                System.out.println("Directory not found - " + foldName);
-            } else {
-                for (File deck : folder.listFiles((dir, name) -> name.endsWith(".dck"))) {
-                    Deck d = DeckSerializer.fromFile(deck);
-                    if (d == null) {
-                        System.out.println(TextUtil.concatNoSpace("Could not load deck - ", deck.getName(), ", match cannot start"));
-                        return;
-                    }
-                    deckGroup.addAiDeck(d);
-                    players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0), numPlayers));
-                    numPlayers++;
-                }
+if (params.containsKey("D")) {
+    // Direc
+    String foldName = params.get("D").get(0);
+    File folder = new File(foldName);
+    if (!folder.isDirectory()) {
+        System.out.println("Directory not found - " + foldName);
+    } else {
+        for (File deck : folder.listFiles((dir, name) -> name.endsWith(".dck"))) {
+            Deck d = DeckSerializer.fromFile(deck);
+            if (d == null) {
+                System.out.println(TextUtil.concatNoSpace("Could not load deck - ", deck.getName(), ", match cannot start"));
+                return;
             }
+            deckGroup.addAiDeck(d);
+            // --- THIS IS THE CORRECTED LOGIC ---
+            String aiProfile = "";
+            if (params.containsKey("a") && numPlayers < params.get("a").size()) {
+                aiProfile = params.get("a").get(numPlayers);
+            }
+            players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0, 0, null, aiProfile), numPlayers));
+            numPlayers++;
         }
+    }
+}
 
         if (numPlayers == 0) {
             System.out.println("No decks/Players found. Please try again.");
