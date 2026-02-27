@@ -257,7 +257,8 @@ if (params.containsKey("D")) {
                 return;
             }
             deckGroup.addAiDeck(d);
-            // --- THIS IS THE CORRECTED LOGIC ---
+            // --- THIS IS THE CRITICAL FIX ---
+            // We are adding the logic to read the -a flag for each player.
             String aiProfile = "";
             if (params.containsKey("a") && numPlayers < params.get("a").size()) {
                 aiProfile = params.get("a").get(numPlayers);
