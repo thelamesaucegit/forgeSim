@@ -2,19 +2,17 @@ import { WebSocketServer, WebSocket } from "ws";
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-
-// NOTE: chokidar and parser are not used in this diagnostic script,
-// as we only care about the STDERR output from strace.
 import chokidar from "chokidar";
 import { parseLogLine, getInitialState, GameState } from "./parser.js";
 
-// --- Server State (Minimal for this test) ---
+// --- Server State ---
 let simulationStatus: "idle" | "running" | "finished" = "idle";
+let activeGameState: GameState = getInitialState();
 
 // --- WebSocket Server Setup ---
 const wss = new WebSocketServer({ port: 8080 });
-const APP_DIR = process.cwd();
 console.log(`[INIT] Sidecar WebSocket server started on port 8080.`);
+const APP_DIR = process.cwd();
 console.log(`[INIT] Application root directory: ${APP_DIR}`);
 
 const FORGE_DECKS_DIR = path.join(APP_DIR, "res", "decks", "constructed");
@@ -25,14 +23,18 @@ if (!fs.existsSync(FORGE_DECKS_DIR)) {
 
 wss.on("connection", (ws) => {
   console.log("[WSS] Client connected.");
-  ws.send(JSON.stringify({ type: "CONNECTION_ESTABLISHED", status: "STRACE_DIAGNOSTIC_READY" }));
+  ws.send(JSON.stringify({ type: "CONNECTION_ESTABLISHED", status: simulationStatus, state: activeGameState }));
 
   ws.on("message", (message) => {
     try {
         const data = JSON.parse(message.toString());
         if (data.type === "START_MATCH") {
-          console.log("[DIAG] Received START_MATCH signal. Running strace diagnostic.");
+          if (simulationStatus === "running") {
+            ws.send(JSON.stringify({ type: "ERROR", message: "A match is already in progress." }));
+            return;
+          }
           const { deck1, deck2 } = data.payload;
+          activeGameState = getInitialState();
           startForgeSimulation(ws, deck1, deck2);
         }
     } catch (e) {
@@ -43,59 +45,97 @@ wss.on("connection", (ws) => {
   ws.on("close", () => console.log("[WSS] Client disconnected."));
 });
 
-// --- strace Diagnostic Simulation Logic ---
+// --- Forge Simulation Logic ---
 function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   simulationStatus = "running";
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
+  const logFileName = "gamelog.txt";
+  const logFilePath = path.join(APP_DIR, logFileName);
 
-  // Deck file writing is still necessary for the Java command to be valid.
   try {
-    fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
-    fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
+    const deck1Path = path.join(FORGE_DECKS_DIR, deck1.filename);
+    const deck2Path = path.join(FORGE_DECKS_DIR, deck2.filename);
+    console.log(`[SIM] Writing deck 1 to: ${deck1Path}`);
+    fs.writeFileSync(deck1Path, deck1.content);
+    console.log(`[SIM] Writing deck 2 to: ${deck2Path}`);
+    fs.writeFileSync(deck2Path, deck2.content);
   } catch(e) {
     console.error(`[SIM] FATAL: Failed to write deck files.`, e);
     simulationStatus = "idle";
     return;
   }
+
+  broadcast({ type: "SIMULATION_STARTING" });
+
+  if (fs.existsSync(logFilePath)) {
+    fs.unlinkSync(logFilePath);
+  }
   
-  // The command to run is 'strace'. The rest of the command is its arguments.
-  const commandToRun = "strace";
-  const commandArgs = [
-      "-f", // Follow any child processes forked by Java
-      "java",
+  // --- THE FINAL, DEFINITIVE CORRECTION ---
+  // We provide the full relative path for the deck files to the -d flag.
+  const deck1RelativePath = path.join("res", "decks", "constructed", deck1.filename);
+  const deck2RelativePath = path.join("res", "decks", "constructed", deck2.filename);
+
+  const javaArgs = [
       `-Djava.awt.headless=true`,
       `-Dforge.home=${APP_DIR}`,
       "-jar",
       jarPath,
       "sim",
-      "-d", deck1.filename, 
-      "-d", deck2.filename,
-      "-a", deck1.aiProfile, 
+      "-d", deck1RelativePath, // Use the full relative path
+      "-d", deck2RelativePath, // Use the full relative path
+      "-a", deck1.aiProfile,
       "-a", deck2.aiProfile,
-      "-l", "gamelog.txt", 
+      "-l", logFileName,
       "-n", "1",
   ];
 
-  console.log(`[DIAGNOSTIC] Spawning process with command: ${commandToRun} ${commandArgs.join(' ')}`);
+  console.log(`[SIM] Spawning Java process with command: java ${javaArgs.join(' ')}`);
+  const forgeProcess = spawn("java", javaArgs, { cwd: APP_DIR });
 
-  const diagnosticProcess = spawn(commandToRun, commandArgs, { cwd: APP_DIR });
-
-  diagnosticProcess.on('error', (err) => {
-      console.error('[SPAWN_ERROR] Failed to start strace process.', err);
-      broadcast({ type: "ERROR", message: "Critical error: Failed to start the diagnostic tool." });
+  forgeProcess.on('error', (err) => {
+      console.error('[SPAWN_ERROR] Failed to start Java process.', err);
+      broadcast({ type: "ERROR", message: "Critical error: Failed to start the simulation engine." });
       simulationStatus = "idle";
   });
 
-  // `strace` prints all its output to STDERR. This is now our primary log.
-  diagnosticProcess.stderr.on('data', (data) => {
-      // We log this directly to the console. It will be very verbose.
-      console.log(`[STRACE_OUTPUT]: ${data.toString()}`);
+  forgeProcess.stderr.on('data', (data) => {
+      console.error(`[FORGE_STDERR]: ${data.toString()}`);
+      broadcast({ type: "ERROR", message: `Forge Error: ${data.toString()}` });
   });
 
-  diagnosticProcess.on("close", (code) => {
-    console.log(`[DIAGNOSTIC] strace process exited with code ${code}`);
+  const watcher = chokidar.watch(logFilePath, { persistent: true, usePolling: true, interval: 100 });
+  console.log(`[SIM] Watching for log file at: ${logFilePath}`);
+
+  let lastSize = 0;
+  watcher.on("change", (changedPath) => {
+    fs.stat(changedPath, (err, stats) => {
+        if (err) { console.error("Error stating file:", err); return; }
+        if (stats.size > lastSize) {
+            const stream = fs.createReadStream(changedPath, { start: lastSize, end: stats.size, encoding: 'utf8' });
+            stream.on('data', (chunk) => processLogChunk(chunk.toString()));
+            lastSize = stats.size;
+        }
+    });
+  });
+
+  const processLogChunk = (chunk: string) => {
+    const lines = chunk.split('\n').filter(line => line.trim() !== '');
+    for (const line of lines) {
+        console.log(`[RAW_FORGE_LOG]: ${line}`);
+        const updatedState = parseLogLine(line, activeGameState);
+        if (updatedState) {
+            activeGameState = updatedState;
+            broadcast({ type: "STATE_UPDATE", state: activeGameState });
+        }
+    }
+  };
+
+  forgeProcess.on("close", (code) => {
+    console.log(`[SIM] Forge process exited with code ${code}`);
     simulationStatus = "finished";
-    broadcast({ type: "DIAGNOSTIC_COMPLETE", message: `Diagnostic finished. Check server logs for STRACE_OUTPUT.` });
+    broadcast({ type: "SIMULATION_COMPLETE", finalState: activeGameState });
+    watcher.close();
   });
 }
 
