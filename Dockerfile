@@ -1,25 +1,16 @@
 # ----------------- Stage 1: Build the full Forge project with Maven -----------------
-# We use an official Maven image which includes the JDK and Git.
 FROM maven:3.8-openjdk-17 AS javabuilder
 WORKDIR /usr/src/app
+RUN git clone --recursive https://github.com/your-username/your-forge-repo.git .
 
-# --- THIS IS THE MAJOR CHANGE ---
-# Instead of copying local files, we clone the repository directly.
-# The --recursive flag is CRITICAL as it automatically initializes and clones all submodules.
-RUN git clone --recursive https://github.com/thelamesaucegit/forgeSim .
-
-# Now that all source code (including submodules) is present, run the Maven package command.
-RUN mvn package -DskipTests
-
-# --- DEBUGGING STEP ---
-# List the contents of the target directories to verify the JAR and res folder exist.
-# This helps confirm our paths are correct before we try to copy from them.
-RUN echo "--- Verifying Java Build Artifacts ---"
-RUN ls -la /usr/src/app/forge-gui-desktop/target/
-RUN ls -la /usr/src/app/forge-gui/
+# --- THIS IS THE CRITICAL CHANGE ---
+# 1. -pl forge-gui-desktop : Tells Maven to build only the desktop GUI module and its dependencies.
+# 2. -am : Also builds the required upstream dependencies of the specified module.
+# 3. -Dlaunch4j.skip=true : This property specifically tells the launch4j plugin to do nothing.
+RUN mvn package -pl forge-gui-desktop -am -DskipTests -Dlaunch4j.skip=true
 
 # ----------------- Stage 2: Build the TypeScript server code -----------------
-# This stage does not change. It still builds your Node.js code from your local files.
+# This stage does not change.
 FROM node:20-bookworm-slim AS nodebuilder
 WORKDIR /app
 COPY package*.json ./
@@ -30,7 +21,7 @@ COPY parser.ts .
 RUN npm run build
 
 # ----------------- Stage 3: Assemble the final, lean runtime image -----------------
-# This stage does not change. It assembles the artifacts from the previous stages.
+# This stage does not change.
 FROM node:20-bookworm-slim
 WORKDIR /app
 
