@@ -69,8 +69,7 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   simulationStatus = "running";
   console.log(`[SIM] Simulation status set to 'running'.`);
 
-  const deck1Path = path.join(FORGE_DECKS_DIR, deck1.filename);
-  const deck2Path = path.join(FORGE_DECKS_DIR, deck2.filename);
+
   const jarPath = path.join(process.cwd(), "forgeSim.jar");
   const logFileName = "gamelog.txt"; // Forge needs just the filename for the -l flag
   const logFilePath = path.join(process.cwd(), logFileName);
