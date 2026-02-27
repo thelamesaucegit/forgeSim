@@ -7,7 +7,7 @@ WORKDIR /usr/src/app
 # Instead of copying local files, we clone the repository directly.
 # The --recursive flag is CRITICAL as it automatically initializes and clones all submodules.
 # You will need to replace the URL with the actual URL of your Git repository.
-RUN git clone --recursive https://github.com/your-username/your-forge-repo.git .
+RUN git clone --recursive https://github.com/thelamesaucegit/forgeSim .
 
 # Now that all source code (including submodules) is present, run the Maven package command.
 RUN mvn package -DskipTests
