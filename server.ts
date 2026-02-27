@@ -14,7 +14,6 @@ const APP_DIR = process.cwd();
 const FORGE_DECKS_DIR = path.join(APP_DIR, "res", "decks", "constructed");
 
 console.log(`[INIT] Sidecar WebSocket server started on port 8080.`);
-console.log(`[INIT] Application root directory: ${APP_DIR}`);
 
 if (!fs.existsSync(FORGE_DECKS_DIR)) {
     fs.mkdirSync(FORGE_DECKS_DIR, { recursive: true });
@@ -28,6 +27,7 @@ wss.on("connection", (ws) => {
     try {
         const data = JSON.parse(message.toString());
         if (data.type === "START_MATCH") {
+          console.log("[DIAG] Received START_MATCH signal. Running 'Bare Essentials' test.");
           const { deck1, deck2 } = data.payload;
           activeGameState = getInitialState();
           startForgeSimulation(ws, deck1, deck2);
@@ -36,21 +36,19 @@ wss.on("connection", (ws) => {
   });
 });
 
-// --- Forge Simulation Logic ---
+// --- "Bare Essentials" Simulation Logic ---
 function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   simulationStatus = "running";
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
 
+  // Directory prep is still required for tournament mode to find players.
   try {
     console.log(`[SIM] Cleaning directory for tournament: ${FORGE_DECKS_DIR}`);
     fs.rmSync(FORGE_DECKS_DIR, { recursive: true, force: true });
     fs.mkdirSync(FORGE_DECKS_DIR, { recursive: true });
 
-    const deck1Path = path.join(FORGE_DECKS_DIR, deck1.filename);
-    const deck2Path = path.join(FORGE_DECKS_DIR, deck2.filename);
-    fs.writeFileSync(deck1Path, deck1.content);
-    fs.writeFileSync(deck2Path, deck2.content);
-    console.log(`[SIM] Wrote new decks to clean directory.`);
+    fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
+    fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
   } catch(e: any) {
     console.error(`[SIM] FATAL: Failed during deck file write.`, e.message);
     simulationStatus = "idle";
@@ -59,6 +57,8 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
 
   broadcast({ type: "SIMULATION_STARTING" });
 
+  // --- THE "BARE ESSENTIALS" COMMAND ---
+  // We are removing the '-a' flags entirely to isolate the tournament and deck loading logic.
   const javaArgs = [
       `-Djava.awt.headless=true`,
       `-Dforge.home=${APP_DIR}`,
@@ -67,13 +67,11 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
       "sim",
       "-t", "RoundRobin",
       "-p", "2",
-      "-D", FORGE_DECKS_DIR,
-      "-a", deck1.aiProfile,
-      "-a", deck2.aiProfile,
+      "-D", FORGE_DECKS_DIR, // The application will find the two decks in this directory.
       "-n", "1",
   ];
 
-  console.log(`[SIM] Spawning Java process with command: java ${javaArgs.join(' ')}`);
+  console.log(`[DIAG] Spawning Java process with BARE ESSENTIALS command: java ${javaArgs.join(' ')}`);
   const forgeProcess = spawn("java", javaArgs, { cwd: APP_DIR });
 
   forgeProcess.stdout.on('data', (data) => {
@@ -82,7 +80,6 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
 
   forgeProcess.stderr.on('data', (data) => {
       console.error(`[FORGE_STDERR]: ${data.toString()}`);
-      broadcast({ type: "ERROR", message: `Forge Error: ${data.toString()}` });
   });
 
   const processLogChunk = (chunk: string) => {
@@ -98,7 +95,7 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   };
 
   forgeProcess.on("close", (code) => {
-    console.log(`[SIM] Forge process exited with code ${code}`);
+    console.log(`[DIAG] "Bare Essentials" test exited with code ${code}`);
     simulationStatus = "finished";
     broadcast({ type: "SIMULATION_COMPLETE", finalState: activeGameState });
   });
