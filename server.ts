@@ -79,6 +79,8 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   // We explicitly set the 'forge.home' system property to the writable /app directory.
   // This tells the Forge application where to find/create its user data and preferences.
   const javaArgs = [
+            `-Djava.awt.headless=true`,
+
       `-Dforge.home=${APP_DIR}`,
       "-jar",
       jarPath,
