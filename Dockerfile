@@ -12,6 +12,13 @@ RUN git clone --recursive https://github.com/your-username/your-forge-repo.git .
 # Now that all source code (including submodules) is present, run the Maven package command.
 RUN mvn package -DskipTests
 
+# --- DEBUGGING STEP ---
+# List the contents of the target directories to verify the JAR and res folder exist.
+# This helps confirm our paths are correct before we try to copy from them.
+RUN echo "--- Verifying Java Build Artifacts ---"
+RUN ls -la /usr/src/app/forge-gui-desktop/target/
+RUN ls -la /usr/src/app/forge-gui/
+
 # ----------------- Stage 2: Build the TypeScript server code -----------------
 # This stage does not change. It still builds your Node.js code from your local files.
 FROM node:20-bookworm-slim AS nodebuilder
