@@ -97,3 +97,16 @@ __pycache__
 
 # Ignore Claude configuration
 .claude
+
+# Node
+node_modules
+dist
+npm-debug.log
+
+
+# Java / Maven
+
+*.jar
+*.war
+
+
