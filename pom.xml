@@ -359,6 +359,35 @@
         </plugins>
     </build>
 
+  <profiles>
+        <profile>
+            <id>docker-build</id>
+            <!-- 
+                This profile creates a minimal build suitable for the Docker container.
+                It limits the modules built and deactivates the problematic launch4j plugin.
+            -->
+            <modules>
+                <module>forge-core</module>
+                <module>forge-game</module>
+                <module>forge-ai</module>
+                <module>forge-gui</module>
+                <module>forge-gui-desktop</module>
+            </modules>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>com.akathist.maven.plugins.launch4j</groupId>
+                        <artifactId>launch4j-maven-plugin</artifactId>
+                        <!-- This configuration ensures the plugin is skipped -->
+                        <configuration>
+                            <skip>true</skip>
+                        </configuration>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+        </profiles>
+
     <dependencyManagement>
         <dependencies>
             <dependency>
