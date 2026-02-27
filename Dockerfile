@@ -1,7 +1,15 @@
 # ----------------- Stage 1: Build the full Forge project with Maven -----------------
+# We use an official Maven image which includes the JDK and Git.
 FROM maven:3.8-openjdk-17 AS javabuilder
 WORKDIR /usr/src/app
-COPY . .
+
+# --- THIS IS THE MAJOR CHANGE ---
+# Instead of copying local files, we clone the repository directly.
+# The --recursive flag is CRITICAL as it automatically initializes and clones all submodules.
+# You will need to replace the URL with the actual URL of your Git repository.
+RUN git clone --recursive https://github.com/your-username/your-forge-repo.git .
+
+# Now that all source code (including submodules) is present, run the Maven package command.
 RUN mvn package -DskipTests
 
 # --- DEBUGGING STEP ---
@@ -12,6 +20,7 @@ RUN ls -la /usr/src/app/forge-gui-desktop/target/
 RUN ls -la /usr/src/app/forge-gui/
 
 # ----------------- Stage 2: Build the TypeScript server code -----------------
+# This stage does not change. It still builds your Node.js code from your local files.
 FROM node:20-bookworm-slim AS nodebuilder
 WORKDIR /app
 COPY package*.json ./
@@ -22,6 +31,7 @@ COPY parser.ts .
 RUN npm run build
 
 # ----------------- Stage 3: Assemble the final, lean runtime image -----------------
+# This stage does not change. It assembles the artifacts from the previous stages.
 FROM node:20-bookworm-slim
 WORKDIR /app
 
@@ -31,12 +41,10 @@ COPY --from=nodebuilder /app/package*.json ./
 RUN npm install --omit=dev
 COPY --from=nodebuilder /app/dist ./dist
 
-# --- THE CRITICAL FIX IS IN THESE 'COPY --FROM' COMMANDS ---
-
-# 1. Copy the JAR from the 'javabuilder' stage, not the local context.
+# Copy the JAR from the javabuilder stage
 COPY --from=javabuilder /usr/src/app/forge-gui-desktop/target/forge-gui-desktop-2.0.11-SNAPSHOT-jar-with-dependencies.jar ./forgeSim.jar
 
-# 2. Copy the 'res' folder from the 'javabuilder' stage, not the local context.
+# Copy the resource folder from the javabuilder stage
 COPY --from=javabuilder /usr/src/app/forge-gui/res ./res
 
 EXPOSE 8080
