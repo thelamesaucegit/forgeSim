@@ -12,6 +12,24 @@ let activeGameState: GameState = getInitialState();
 const wss = new WebSocketServer({ port: 8080 });
 const APP_DIR = process.cwd();
 console.log(`[INIT] Sidecar WebSocket server started on port 8080.`);
+console.log(`[INIT] Application root directory: ${APP_DIR}`);
+
+// --- THE COMBINED SOLUTION: Create expected user directories ---
+try {
+    const userDir = path.join(APP_DIR, ".forge");
+    const cacheDir = path.join(APP_DIR, ".cache", "forge");
+
+    if (!fs.existsSync(userDir)) {
+        console.log(`[INIT] Creating expected user directory: ${userDir}`);
+        fs.mkdirSync(userDir, { recursive: true });
+    }
+    if (!fs.existsSync(cacheDir)) {
+        console.log(`[INIT] Creating expected cache directory: ${cacheDir}`);
+        fs.mkdirSync(cacheDir, { recursive: true });
+    }
+} catch (e: any) {
+    console.error(`[INIT] FATAL: Could not create user directories.`, e.message);
+}
 
 wss.on("connection", (ws) => {
   console.log("[WSS] Client connected.");
@@ -21,40 +39,38 @@ wss.on("connection", (ws) => {
     try {
         const data = JSON.parse(message.toString());
         if (data.type === "START_MATCH") {
-          console.log("[DIAG] Received START_MATCH signal. Running 'Known-Good Data' test.");
+          console.log("[DIAG] Received START_MATCH signal. Running final test.");
           activeGameState = getInitialState();
-          // We don't need deck payload, but we call the function to start the process.
           startForgeSimulation(ws);
         }
     } catch (e) { console.error("[WSS] Failed to parse incoming WebSocket message:", e); }
   });
 });
 
-// --- "Known-Good Data" Simulation Logic ---
+// --- Final Test Simulation Logic ---
 function startForgeSimulation(ws: WebSocket) {
   simulationStatus = "running";
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
 
   broadcast({ type: "SIMULATION_STARTING" });
 
-  // --- THE "KNOWN-GOOD DATA" COMMAND ---
-  // We use tournament mode to point to the built-in genetic AI decks directory.
-  // We do not pass deck names or AI profiles. The app will use all decks in the directory.
   const knownGoodDecksDir = path.join(APP_DIR, "res", "geneticaidecks");
 
+  // --- THE COMBINED SOLUTION: Add memory flag and use known-good data ---
   const javaArgs = [
+      "-Xmx1024m",              // Explicitly set max heap size to 1GB
       `-Djava.awt.headless=true`,
       `-Dforge.home=${APP_DIR}`,
       "-jar",
       jarPath,
       "sim",
-      "-t", "RoundRobin",   // Run a tournament
-      "-p", "2",              // with 2 players per match
-      "-D", knownGoodDecksDir, // using the known-good decks directory
-      "-n", "1",              // for 1 game per match
+      "-t", "RoundRobin",
+      "-p", "2",
+      "-D", knownGoodDecksDir,
+      "-n", "1",
   ];
 
-  console.log(`[DIAG] Spawning Java process with KNOWN-GOOD DATA command: java ${javaArgs.join(' ')}`);
+  console.log(`[DIAG] Spawning Java process with final command: java ${javaArgs.join(' ')}`);
   const forgeProcess = spawn("java", javaArgs, { cwd: APP_DIR });
 
   forgeProcess.stdout.on('data', (data) => {
@@ -78,7 +94,7 @@ function startForgeSimulation(ws: WebSocket) {
   };
 
   forgeProcess.on("close", (code) => {
-    console.log(`[DIAG] "Known-Good Data" test exited with code ${code}`);
+    console.log(`[DIAG] Final test exited with code ${code}`);
     simulationStatus = "finished";
     broadcast({ type: "SIMULATION_COMPLETE", finalState: activeGameState });
   });
