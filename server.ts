@@ -11,14 +11,7 @@ let activeGameState: GameState = getInitialState();
 // --- WebSocket Server Setup ---
 const wss = new WebSocketServer({ port: 8080 });
 const APP_DIR = process.cwd();
-const FORGE_DECKS_DIR = path.join(APP_DIR, "res", "decks", "constructed");
-
 console.log(`[INIT] Sidecar WebSocket server started on port 8080.`);
-console.log(`[INIT] Application root directory: ${APP_DIR}`);
-
-if (!fs.existsSync(FORGE_DECKS_DIR)) {
-    fs.mkdirSync(FORGE_DECKS_DIR, { recursive: true });
-}
 
 wss.on("connection", (ws) => {
   console.log("[WSS] Client connected.");
@@ -28,36 +21,26 @@ wss.on("connection", (ws) => {
     try {
         const data = JSON.parse(message.toString());
         if (data.type === "START_MATCH") {
-          const { deck1, deck2 } = data.payload;
+          console.log("[DIAG] Received START_MATCH signal. Running 'Known-Good Data' test.");
           activeGameState = getInitialState();
-          startForgeSimulation(ws, deck1, deck2);
+          // We don't need deck payload, but we call the function to start the process.
+          startForgeSimulation(ws);
         }
     } catch (e) { console.error("[WSS] Failed to parse incoming WebSocket message:", e); }
   });
 });
 
-// --- Forge Simulation Logic ---
-function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
+// --- "Known-Good Data" Simulation Logic ---
+function startForgeSimulation(ws: WebSocket) {
   simulationStatus = "running";
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
 
-  try {
-    console.log(`[SIM] Cleaning directory for tournament: ${FORGE_DECKS_DIR}`);
-    fs.rmSync(FORGE_DECKS_DIR, { recursive: true, force: true });
-    fs.mkdirSync(FORGE_DECKS_DIR, { recursive: true });
-
-    const deck1Path = path.join(FORGE_DECKS_DIR, deck1.filename);
-    const deck2Path = path.join(FORGE_DECKS_DIR, deck2.filename);
-    fs.writeFileSync(deck1Path, deck1.content);
-    fs.writeFileSync(deck2Path, deck2.content);
-    console.log(`[SIM] Wrote new decks to clean directory.`);
-  } catch(e: any) {
-    console.error(`[SIM] FATAL: Failed during deck file write.`, e.message);
-    simulationStatus = "idle";
-    return;
-  }
-
   broadcast({ type: "SIMULATION_STARTING" });
+
+  // --- THE "KNOWN-GOOD DATA" COMMAND ---
+  // We use tournament mode to point to the built-in genetic AI decks directory.
+  // We do not pass deck names or AI profiles. The app will use all decks in the directory.
+  const knownGoodDecksDir = path.join(APP_DIR, "res", "geneticaidecks");
 
   const javaArgs = [
       `-Djava.awt.headless=true`,
@@ -65,15 +48,13 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
       "-jar",
       jarPath,
       "sim",
-      "-t", "RoundRobin",
-      "-p", "2",
-      "-D", FORGE_DECKS_DIR,
-      "-a", deck1.aiProfile,
-      "-a", deck2.aiProfile,
-      "-n", "1",
+      "-t", "RoundRobin",   // Run a tournament
+      "-p", "2",              // with 2 players per match
+      "-D", knownGoodDecksDir, // using the known-good decks directory
+      "-n", "1",              // for 1 game per match
   ];
 
-  console.log(`[SIM] Spawning Java process with command: java ${javaArgs.join(' ')}`);
+  console.log(`[DIAG] Spawning Java process with KNOWN-GOOD DATA command: java ${javaArgs.join(' ')}`);
   const forgeProcess = spawn("java", javaArgs, { cwd: APP_DIR });
 
   forgeProcess.stdout.on('data', (data) => {
@@ -82,7 +63,6 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
 
   forgeProcess.stderr.on('data', (data) => {
       console.error(`[FORGE_STDERR]: ${data.toString()}`);
-      broadcast({ type: "ERROR", message: `Forge Error: ${data.toString()}` });
   });
 
   const processLogChunk = (chunk: string) => {
@@ -98,7 +78,7 @@ function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   };
 
   forgeProcess.on("close", (code) => {
-    console.log(`[SIM] Forge process exited with code ${code}`);
+    console.log(`[DIAG] "Known-Good Data" test exited with code ${code}`);
     simulationStatus = "finished";
     broadcast({ type: "SIMULATION_COMPLETE", finalState: activeGameState });
   });
