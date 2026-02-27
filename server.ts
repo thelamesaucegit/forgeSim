@@ -1,5 +1,4 @@
 import { WebSocketServer, WebSocket } from "ws";
-// 1. Import 'exec' alongside 'spawn'
 import { spawn, exec } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
@@ -129,8 +128,7 @@ function runForgeProcess(ws: WebSocket, deck1: any, deck2: any, jarPath: string,
         broadcast({ type: "ERROR", message: `Forge Error: ${data.toString()}` });
     });
 
-    // 2. The watcher and process handlers must be part of this function
-    const watcher = chokidar.watch(logFilePath, {
+    const watcher = chokidar.watch(logFileName, {
         persistent: true,
         usePolling: true,
         interval: 100,
@@ -140,8 +138,10 @@ function runForgeProcess(ws: WebSocket, deck1: any, deck2: any, jarPath: string,
     console.log(`[SIM] Watching for log file at: ${logFilePath}`);
 
     let lastSize = 0;
-    watcher.on("change", (path) => {
-        const fullLogPath = path.isAbsolute(path) ? path : logFilePath;
+    // --- THIS IS THE CORRECTED SECTION ---
+    // The argument is renamed to 'changedPath' to avoid conflict with the 'path' module.
+    watcher.on("change", (changedPath) => {
+        const fullLogPath = path.isAbsolute(changedPath) ? changedPath : logFilePath;
         fs.stat(fullLogPath, (err, stats) => {
             if (err) { console.error("Error stating file:", err); return; }
             if (stats.size > lastSize) {
@@ -175,7 +175,6 @@ function runForgeProcess(ws: WebSocket, deck1: any, deck2: any, jarPath: string,
     });
 }
 
-// 3. The broadcast function must be at the top level
 function broadcast(data: object) {
   const payload = JSON.stringify(data);
   wss.clients.forEach((client) => {
