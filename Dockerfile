@@ -1,17 +1,15 @@
-# ----------------- Stage 1: Build the full Forge project with Maven -----------------
+# ----------------- Stage 1: Build the lean Forge project -----------------
 FROM maven:3.8-openjdk-17 AS javabuilder
 WORKDIR /usr/src/app
 
-# Clone the repository and all its submodules.
-RUN git clone --recursive https://github.com/thelamesaucegit/forgeSim.git .
+# Clone your newly pruned repository
+RUN git clone https://github.com/thelamesaucegit/forgeSim.git .
 
-# --- THE CRITICAL CHANGE IS HERE ---
-# We run the standard 'package' command, but activate our new 'docker-build' profile.
-# This profile handles limiting the modules and disabling the launch4j plugin.
-RUN mvn package -Pdocker-build -DskipTests
+# A simple, standard Maven build. It will only build the modules 
+# listed in your updated root pom.xml.
+RUN mvn package -DskipTests
 
 # ----------------- Stage 2: Build the TypeScript server code -----------------
-# This stage does not change.
 FROM node:20-bookworm-slim AS nodebuilder
 WORKDIR /app
 COPY package*.json ./
@@ -21,8 +19,7 @@ COPY server.ts .
 COPY parser.ts .
 RUN npm run build
 
-# ----------------- Stage 3: Assemble the final, lean runtime image -----------------
-# This stage does not change.
+# ----------------- Stage 3: Assemble the final runtime image -----------------
 FROM node:20-bookworm-slim
 WORKDIR /app
 
