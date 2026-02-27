@@ -378,6 +378,7 @@
                     <plugin>
                         <groupId>com.akathist.maven.plugins.launch4j</groupId>
                         <artifactId>launch4j-maven-plugin</artifactId>
+                         <version>2.7.0</version>
                         <!-- This configuration ensures the plugin is skipped -->
                         <configuration>
                             <skip>true</skip>
