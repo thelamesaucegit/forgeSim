@@ -3,30 +3,50 @@ import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
 import chokidar from "chokidar";
-// THE FIX IS HERE: The path should not include './app/'.
 import { parseLogLine, getInitialState, GameState } from "./parser.js";
 
-// --- Server State ---
 let simulationStatus: "idle" | "running" | "finished" = "idle";
 let activeGameState: GameState = getInitialState();
 
-// --- WebSocket Server Setup ---
 const wss = new WebSocketServer({ port: 8080 });
 console.log("Sidecar WebSocket server started on port 8080");
+
+// The directory inside the container where Forge expects decks
+const FORGE_DECKS_DIR = path.join(process.cwd(), "res", "decks", "constructed");
+
+// Ensure the directory exists when the server starts
+if (!fs.existsSync(FORGE_DECKS_DIR)) {
+    fs.mkdirSync(FORGE_DECKS_DIR, { recursive: true });
+}
 
 wss.on("connection", (ws) => {
   console.log("Client connected");
   ws.send(JSON.stringify({ type: "CONNECTION_ESTABLISHED", status: simulationStatus, state: activeGameState }));
 
   ws.on("message", (message) => {
-    const messageString = message.toString();
-    if (messageString === "START_MATCH") {
-      if (simulationStatus === "running") {
-        ws.send(JSON.stringify({ type: "ERROR", message: "A match is already in progress." }));
-        return;
-      }
-      activeGameState = getInitialState();
-      startForgeSimulation(ws);
+    try {
+        const data = JSON.parse(message.toString());
+
+        if (data.type === "START_MATCH") {
+          if (simulationStatus === "running") {
+            ws.send(JSON.stringify({ type: "ERROR", message: "A match is already in progress." }));
+            return;
+          }
+
+          // Extract the payload sent from Next.js
+          const { deck1, deck2 } = data.payload;
+
+          // Write the string contents to local .dck files inside the container
+          fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
+          fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
+
+          activeGameState = getInitialState();
+          
+          // Pass the data to the simulation function
+          startForgeSimulation(ws, deck1, deck2);
+        }
+    } catch (e) {
+        console.error("Failed to parse incoming WebSocket message:", e);
     }
   });
 
@@ -35,8 +55,8 @@ wss.on("connection", (ws) => {
   });
 });
 
-// --- Forge Simulation Logic ---
-function startForgeSimulation(ws: WebSocket) {
+// Update function signature to accept the dynamic deck data
+function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   simulationStatus = "running";
   const logFileName = "gamelog.txt";
   const logFilePath = path.join(process.cwd(), logFileName);
@@ -47,17 +67,13 @@ function startForgeSimulation(ws: WebSocket) {
     fs.unlinkSync(logFilePath);
   }
 
-  const deck1 = "creeps-deck.dck";
-  const deck2 = "ninja-deck.dck";
-  const aiProfile1 = "Control";
-  const aiProfile2 = "Aggro";
-
+  // Use the dynamic variables passed from Next.js
   const forgeProcess = spawn("java", [
     "-jar",
     "forgeSim.jar",
     "sim",
-    "-d", deck1, deck2,
-    "-a", aiProfile1, aiProfile2,
+    "-d", deck1.filename, deck2.filename,
+    "-a", deck1.aiProfile, deck2.aiProfile, 
     "-l", logFileName,
     "-n", "1",
   ]);
@@ -71,22 +87,19 @@ function startForgeSimulation(ws: WebSocket) {
   console.log(`Watching for log file at: ${logFilePath}`);
 
   let lastSize = 0;
-  watcher.on("change", (path) => {
-    fs.stat(path, (err, stats) => {
-      if (err) {
-        console.error("Error stating file:", err);
-        return;
-      }
+  watcher.on("change", (filePath) => {
+    fs.stat(filePath, (err, stats) => {
+      if (err) return;
       if (stats.size > lastSize) {
-        const stream = fs.createReadStream(path, { start: lastSize, end: stats.size, encoding: 'utf8' });
-        stream.on('data', (chunk) => processLogChunk(chunk.toString()));
+        const stream = fs.createReadStream(filePath, { start: lastSize, end: stats.size, encoding: "utf8" });
+        stream.on("data", (chunk) => processLogChunk(chunk.toString()));
         lastSize = stats.size;
       }
     });
   });
 
   const processLogChunk = (chunk: string) => {
-    const lines = chunk.split('\n').filter(line => line.trim() !== '');
+    const lines = chunk.split("\n").filter(line => line.trim() !== "");
     for (const line of lines) {
       console.log(`[RAW LOG]: ${line}`);
       const updatedState = parseLogLine(line, activeGameState);
@@ -104,13 +117,12 @@ function startForgeSimulation(ws: WebSocket) {
     watcher.close();
   });
 
-  forgeProcess.stderr.on('data', (data) => {
+  forgeProcess.stderr.on("data", (data) => {
     console.error(`Forge STDERR: ${data}`);
     broadcast({ type: "ERROR", message: `Forge Error: ${data}` });
   });
 }
 
-// --- Helper to Broadcast to All Connected Clients ---
 function broadcast(data: object) {
   const payload = JSON.stringify(data);
   wss.clients.forEach((client) => {
