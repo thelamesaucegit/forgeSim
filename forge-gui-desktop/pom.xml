@@ -68,62 +68,7 @@
                     </execution>
                 </executions>
             </plugin>
-            <plugin>
-                <groupId>com.akathist.maven.plugins.launch4j</groupId>
-                <artifactId>launch4j-maven-plugin</artifactId>
-                <version>2.5.1</version>
-                <executions>
-                    <execution>
-                        <id>l4j-gui</id>
-                        <phase>package</phase>
-                        <goals>
-                            <goal>launch4j</goal>
-                        </goals>
-                        <configuration>
-                            <headerType>gui</headerType>
-                            <outfile>${project.build.directory}/forge.exe</outfile>
-                            <jar>${project.build.finalName}-jar-with-dependencies.jar</jar>
-                            <dontWrapJar>true</dontWrapJar>
-                            <errTitle>forge</errTitle>
-                            <downloadUrl>https://bell-sw.com/pages/downloads/#jdk-17-lts</downloadUrl>
-                            <icon>src/main/config/forge.ico</icon>
-                            <classPath>
-                                <mainClass>forge.view.Main</mainClass>
-                                <addDependencies>false</addDependencies>
-                                <preCp>anything</preCp>
-                            </classPath>
-                            <jre>
-                                <minVersion>17</minVersion>
-                                <requiresJdk>true</requiresJdk>
-                                <maxHeapSize>4096</maxHeapSize>
-                                <opts>
-                                    <opt>${mandatory.java.args}</opt>
-                                    <opt>${addopen.java.args}</opt>
-                                </opts>
-                            </jre>
-                            <versionInfo>
-                                <fileVersion>
-                                    ${parsedVersion.majorVersion}.${parsedVersion.minorVersion}.${parsedVersion.incrementalVersion}.0
-                                </fileVersion>
-                                <txtFileVersion>
-                                    ${parsedVersion.majorVersion}.${parsedVersion.minorVersion}.${parsedVersion.incrementalVersion}.0
-                                </txtFileVersion>
-                                <fileDescription>Forge</fileDescription>
-                                <copyright>Forge</copyright>
-                                <productVersion>
-                                    ${parsedVersion.majorVersion}.${parsedVersion.minorVersion}.${parsedVersion.incrementalVersion}.0
-                                </productVersion>
-                                <txtProductVersion>
-                                    ${parsedVersion.majorVersion}.${parsedVersion.minorVersion}.${parsedVersion.incrementalVersion}.0
-                                </txtProductVersion>
-                                <productName>Forge</productName>
-                                <internalName>forge</internalName>
-                                <originalFilename>forge.exe</originalFilename>
-                            </versionInfo>
-                        </configuration>
-                    </execution>
-                </executions>
-            </plugin>
+            
             <plugin>
                 <groupId>com.google.code.maven-replacer-plugin</groupId>
                 <artifactId>replacer</artifactId>
@@ -619,63 +564,7 @@ try {
             <id>osx-release</id>
             <build>
                 <plugins>
-                    <plugin>
-                        <groupId>org.apache.maven.plugins</groupId>
-                        <artifactId>maven-antrun-plugin</artifactId>
-                        <version>3.0.0</version>
-                        <dependencies>
-                            <dependency>
-                                <groupId>org.apache.ant</groupId>
-                                <artifactId>ant-nodeps</artifactId>
-                                <version>1.8.1</version>
-                            </dependency>
-                        </dependencies>
-                        <executions>
-                            <execution>
-                                <id>osx-appbundle</id>
-                                <phase>pre-integration-test</phase>
-                                <configuration>
-                                    <target>
-                                        <mkdir dir="${project.build.directory}/${project.build.finalName}-osx" />
-                                        <copy todir="${project.build.directory}/${project.build.finalName}-osx">
-                                            <fileset dir="${basedir}/../forge-gui/" includes="LICENSE.txt" />
-                                            <fileset dir="${basedir}/../forge-gui/" includes="README.txt" />
-                                            <fileset dir="${basedir}/" includes="sentry.properties" />
-                                        </copy>
-                                        <taskdef name="bundleapp" classpath="${basedir}/../forge-gui/${configSourceDirectory}/appbundler-1.0-custom.jar" classname="com.oracle.appbundler.AppBundlerTask" />
-                                        <bundleapp outputdirectory="${project.build.directory}/${project.build.finalName}-osx" name="${project.name}" displayname="${project.name}" shortversion="${project.version}" identifier="forge.view.Main" icon="${basedir}/${configSourceDirectory}/Forge.icns" applicationCategory="public.app-category.games" mainclassname="forge.view.Main">
-                                            <classpath file="${project.build.directory}/${project.build.finalName}-jar-with-dependencies.jar" />
-                                            <classpath file="${basedir}/../forge-gui/forge.profile.properties.example" />
-                                            <option value="-Dapple.laf.useScreenMenuBar=true" />
-                                            <option value="-Dcom.apple.macos.use-file-dialog-packages=true" />
-                                            <option value="-Dcom.apple.macos.useScreenMenuBar=true" />
-                                            <option value="-Dcom.apple.mrj.application.apple.menu.about.name=Forge" />
-                                            <option value="-Dcom.apple.smallTabs=true" />
-                                            <option value="-Xmx4096M" />
-                                            <option value="-Dapp.dir=$APP_ROOT/Contents/Resources/" />
-                                        </bundleapp>
-                                        <copy todir="${project.build.directory}/${project.build.finalName}-osx/Forge.app/Contents/Resources/res">
-                                            <fileset dir="${basedir}/../forge-gui/res" excludes="**/cardsfolder/**" />
-                                        </copy>
-                                        <mkdir dir="${project.build.directory}/${project.build.finalName}-osx/Forge.app/Contents/Resources/res/cardsfolder" />
-                                        <zip destfile="${project.build.directory}/${project.build.finalName}-osx/Forge.app/Contents/Resources/res/cardsfolder/cardsfolder.zip" basedir="${basedir}/../forge-gui/res/cardsfolder" level="1" />
-                                        <symlink link="${project.build.directory}/${project.build.finalName}-osx/Applications" resource="/Applications" />
-                                        <exec executable="${basedir}/../forge-gui/${configSourceDirectory}/create-dmg" failonerror="false">
-                                            <arg line="--volname ${project.name}-${project.version} --background ${basedir}/../forge-gui/${configSourceDirectory}/backgroundImage.jpg --window-size 700 419 --icon-size 64 --icon ${forge.file.name} 141 283 --icon ${applications.file.name} 452 283 --icon ${changes.file.name} 645 80 --icon ${license.file.name} 645 200 --icon ${readme.file.name} 645 320 ${project.build.directory}/${project.build.finalName}.dmg ${project.build.directory}/${project.build.finalName}-osx" />
-                                        </exec>
-                                        <tar basedir="${project.build.directory}" includes="${project.build.finalName}.dmg" destfile="${project.build.directory}/${project.build.finalName}-osx.tar.bz2" compression="bzip2" />
-                                        <!--<symlink link="${project.build.directory}/${project.build.finalName}-osx/Applications" action="delete" /> -->
-                                        <exec executable="rm" failonerror="false">
-                                            <arg line="-f ${project.build.directory}/${project.build.finalName}-osx/Applications" />
-                                        </exec>
-                                    </target>
-                                </configuration>
-                                <goals>
-                                    <goal>run</goal>
-                                </goals>
-                            </execution>
-                        </executions>
-                    </plugin>
+                    
                     <plugin>
                         <groupId>org.codehaus.mojo</groupId>
                         <artifactId>build-helper-maven-plugin</artifactId>
