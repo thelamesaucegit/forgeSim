@@ -1,7 +1,7 @@
 # ----------------- Stage 1: Build the full Forge project with Maven -----------------
 FROM maven:3.8-openjdk-17 AS javabuilder
 WORKDIR /usr/src/app
-RUN git clone --recursive https://github.com/your-username/your-forge-repo.git .
+RUN git clone --recursive https://github.com/thelamesaucegit/forgeSim .
 
 # --- THIS IS THE CRITICAL CHANGE ---
 # 1. -pl forge-gui-desktop : Tells Maven to build only the desktop GUI module and its dependencies.
