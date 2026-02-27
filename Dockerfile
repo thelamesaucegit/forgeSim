@@ -23,7 +23,7 @@ RUN npm run build
 FROM node:20-bookworm-slim
 WORKDIR /app
 
-RUN apt-get update && apt-get install -y openjdk-17-jre-headless && rm -rf /var/lib/apt/lists/*
+RUN apt-get update && apt-get install -y openjdk-17-jre-headless unzip && rm -rf /var/lib/apt/lists/*
 
 COPY --from=nodebuilder /app/package*.json ./
 RUN npm install --omit=dev
