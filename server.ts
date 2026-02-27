@@ -165,4 +165,22 @@ function runForgeProcess(ws: WebSocket, deck1: any, deck2: any, jarPath: string,
     };
 
     forgeProcess.on("close", (code) => {
-        console.log(`[SIM] Forge process exited with code 
+        console.log(`[SIM] Forge process exited with code ${code}`);
+        if (code !== 0) {
+            console.error(`[SIM] Forge exited with a non-zero code, indicating an error.`);
+        }
+        simulationStatus = "finished";
+        broadcast({ type: "SIMULATION_COMPLETE", finalState: activeGameState });
+        watcher.close();
+    });
+}
+
+// 3. The broadcast function must be at the top level
+function broadcast(data: object) {
+  const payload = JSON.stringify(data);
+  wss.clients.forEach((client) => {
+    if (client.readyState === WebSocket.OPEN) {
+      client.send(payload);
+    }
+  });
+}
