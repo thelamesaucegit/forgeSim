@@ -22,10 +22,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.util.Map;
 import java.util.Properties;
-
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.tuple.Pair;
-
 import forge.gui.GuiBase;
 import forge.util.FileSection;
 import forge.util.FileUtil;
@@ -37,20 +35,19 @@ import forge.util.TextUtil;
  * so they can be easily appended with further path elements.
  */
 public class ForgeProfileProperties {
+
     private static String userDir;
     private static String cacheDir;
     private static String cardPicsDir;
     private static Map<String, String> cardPicsSubDirs;
     private static String decksDir;
     private static String decksConstructedDir;
-
     private static final String USER_DIR_KEY      = "userDir";
     private static final String CACHE_DIR_KEY     = "cacheDir";
     private static final String CARD_PICS_DIR_KEY = "cardPicsDir";
     private static final String CARD_PICS_SUB_DIRS_KEY = "cardPicsSubDirs";
     private static final String DECKS_DIR_KEY      = "decksDir";
     private static final String DECKS_CONSTRUCTED_DIR_KEY = "decksConstructedDir";
-
 
     private ForgeProfileProperties() {
         //prevent initializing static class
@@ -67,38 +64,36 @@ public class ForgeProfileProperties {
             System.err.println("error while reading from profile properties file");
         }
 
-        final Pair<String, String> defaults = getDefaultDirs();
+        // Use the application root as the base for all paths in headless mode.
+        String appRoot = new File("").getAbsolutePath() + File.separator;
+
+        final Pair<String, String> defaults = getDefaultDirs(appRoot);
         userDir     = getDir(props, USER_DIR_KEY,      defaults.getLeft());
         cacheDir    = getDir(props, CACHE_DIR_KEY,     defaults.getRight());
         cardPicsDir = getDir(props, CARD_PICS_DIR_KEY, cacheDir + "pics" + File.separator + "cards" + File.separator);
         cardPicsSubDirs = getMap(props, CARD_PICS_SUB_DIRS_KEY);
-       // Application working directory (root of where the app is running)
-String appRoot = new File("").getAbsolutePath() + File.separator;
-
-// Always resolve decks relative to application root
-String defaultDecksDir = appRoot + "decks" + File.separator;
-
-decksDir = getDir(props, DECKS_DIR_KEY, defaultDecksDir);
-decksConstructedDir = getDir(
-        props,
-        DECKS_CONSTRUCTED_DIR_KEY,
-        decksDir + "constructed" + File.separator
-);
-
-// ensure directories exist
-FileUtil.ensureDirectoryExists(decksDir);
-FileUtil.ensureDirectoryExists(decksConstructedDir);
-
+        
+        // Always resolve decks relative to application root
+        String defaultDecksDir = appRoot + "decks" + File.separator;
+        decksDir = getDir(props, DECKS_DIR_KEY, defaultDecksDir);
+        decksConstructedDir = getDir(
+                props,
+                DECKS_CONSTRUCTED_DIR_KEY,
+                decksDir + "constructed" + File.separator
+        );
 
         //ensure directories exist
         FileUtil.ensureDirectoryExists(userDir);
         FileUtil.ensureDirectoryExists(cacheDir);
         FileUtil.ensureDirectoryExists(cardPicsDir);
+        FileUtil.ensureDirectoryExists(decksDir);
+        FileUtil.ensureDirectoryExists(decksConstructedDir);
     }
 
     public static String getUserDir() {
         return userDir;
     }
+
     public static void setUserDir(final String userDir0) {
         userDir = userDir0;
         save();
@@ -107,6 +102,7 @@ FileUtil.ensureDirectoryExists(decksConstructedDir);
     public static String getCacheDir() {
         return cacheDir;
     }
+
     public static void setCacheDir(final String cacheDir0) {
         final int idx = cardPicsDir.indexOf(cacheDir); //ensure card pics directory is updated too if within cache directory
         if (idx != -1) {
@@ -119,6 +115,7 @@ FileUtil.ensureDirectoryExists(decksConstructedDir);
     public static String getCardPicsDir() {
         return cardPicsDir;
     }
+
     public static void setCardPicsDir(final String cardPicsDir0) {
         cardPicsDir = cardPicsDir0;
         save();
@@ -129,12 +126,14 @@ FileUtil.ensureDirectoryExists(decksConstructedDir);
     }
 
     public static String getDecksDir() { return decksDir; }
+
     public static void setDecksDir(final String decksDir0) {
         decksDir = decksDir0;
         save();
     }
 
     public static String getDecksConstructedDir() { return decksConstructedDir; }
+
     public static void setDecksConstructedDir(final String decksConstructedDir0) {
         decksConstructedDir = decksConstructedDir0;
         save();
@@ -144,25 +143,15 @@ FileUtil.ensureDirectoryExists(decksConstructedDir);
         final String strMap = props.getProperty(propertyKey, "").trim();
         return FileSection.parseToMap(strMap, FileSection.ARROW_KV_SEPARATOR);
     }
-
-    private static int getInt(final Properties props, final String propertyKey, final int defaultValue) {
-        final String strValue = props.getProperty(propertyKey, "").trim();
-        if (StringUtils.isNotBlank(strValue) && StringUtils.isNumeric(strValue)) {
-            return Integer.parseInt(strValue);
-        }
-        return defaultValue;
-    }
-
+    
     private static String getDir(final Properties props, final String propertyKey, final String defaultVal) {
         String retDir = props.getProperty(propertyKey, defaultVal).trim();
         if (retDir.isEmpty()) {
             // use default if dir is "defined" as an empty string in the properties file
             retDir = defaultVal;
         }
-
         // canonicalize
         retDir = new File(retDir).getAbsolutePath();
-
         // ensure path ends in a slash
         if (File.separatorChar == retDir.charAt(retDir.length() - 1)) {
             return retDir;
@@ -171,36 +160,31 @@ FileUtil.ensureDirectoryExists(decksConstructedDir);
     }
 
     // returns a pair <userDir, cacheDir>
-    private static Pair<String, String> getDefaultDirs() {
-        if (!GuiBase.getInterface().isRunningOnDesktop()) { //special case for mobile devices
-            final String assetsDir = ForgeConstants.ASSETS_DIR;
-            return Pair.of(assetsDir + "data" + File.separator, assetsDir + "cache" + File.separator);
+    private static Pair<String, String> getDefaultDirs(String appRoot) {
+        // *** THE FIX IS HERE ***
+        // If we are not running on a desktop (i.e., we are in headless/sim mode),
+        // use the application root for all user and cache data.
+        if (!GuiBase.getInterface().isRunningOnDesktop()) {
+            return Pair.of(appRoot, appRoot + "cache" + File.separator);
         }
 
         final String osName = System.getProperty("os.name");
         final String homeDir = System.getProperty("user.home");
-
         if (StringUtils.isEmpty(osName) || StringUtils.isEmpty(homeDir)) {
             throw new RuntimeException("cannot determine OS and user home directory");
         }
 
         final String fallbackDataDir = TextUtil.concatNoSpace(homeDir, "/.forge");
-
         if (StringUtils.containsIgnoreCase(osName, "windows")) {
-            // the split between appdata and localappdata on windows is relatively recent.  If
-            // localappdata is not defined, use appdata for both.  and if appdata is not defined,
-            // fall back to a linux-style dot dir in the home directory
-            String appRoot = System.getenv().get("APPDATA");
-            if (StringUtils.isEmpty(appRoot)) {
-                appRoot = fallbackDataDir;
+            String appdataRoot = System.getenv().get("APPDATA");
+            if (StringUtils.isEmpty(appdataRoot)) {
+                appdataRoot = fallbackDataDir;
             }
             String cacheRoot = System.getenv().get("LOCALAPPDATA");
             if (StringUtils.isEmpty(cacheRoot)) {
-                cacheRoot = appRoot;
+                cacheRoot = appdataRoot;
             }
-            // the cache dir is Forge/Cache instead of just Forge since appRoot and cacheRoot might be the
-            // same directory on windows and we need to distinguish them.
-            return Pair.of(appRoot + File.separator + "Forge", cacheRoot + File.separator + "Forge" + File.separator + "Cache");
+            return Pair.of(appdataRoot + File.separator + "Forge", cacheRoot + File.separator + "Forge" + File.separator + "Cache");
         }
         else if (StringUtils.containsIgnoreCase(osName, "mac os x")) {
             return Pair.of(TextUtil.concatNoSpace(homeDir, "/Library/Application Support/Forge"),
@@ -212,37 +196,41 @@ FileUtil.ensureDirectoryExists(decksConstructedDir);
     }
 
     private static void save() {
-        final Pair<String, String> defaults = getDefaultDirs();
-        final String defaultUserDir = defaults.getLeft() + File.separator;
-        final String defaultDecksDir = defaultUserDir + "decks" + File.separator;
-        final String defaultCacheDir = defaults.getRight() + File.separator;
+        // This save method is not called in headless mode, but we make it robust anyway.
+        String appRoot = new File("").getAbsolutePath() + File.separator;
+        final Pair<String, String> defaults = getDefaultDirs(appRoot);
+        final String defaultUserDir = defaults.getLeft();
+        final String defaultCacheDir = defaults.getRight();
         final String defaultCardPicsDir = defaultCacheDir + "pics" + File.separator + "cards" + File.separator;
+        final String defaultDecksDir = appRoot + "decks" + File.separator;
 
         //only append values that aren't equal to defaults
         final StringBuilder sb = new StringBuilder();
-        if (!userDir.equals(defaultUserDir)) { //ensure backslashes are escaped
-            sb.append(USER_DIR_KEY + "=").append(userDir.replace("\\", "\\\\")).append("\n");
+        if (!userDir.equals(defaultUserDir)) {
+            sb.append(USER_DIR_KEY + "=").append(userDir.replace("\\\\", "\\\\\\\\")).append("\\n");
         }
         if (!decksDir.equals(defaultDecksDir)) {
-            sb.append(DECKS_DIR_KEY + "=").append(decksDir.replace("\\", "\\\\")).append("\n");
+            sb.append(DECKS_DIR_KEY + "=").append(decksDir.replace("\\\\", "\\\\\\\\")).append("\\n");
         }
         if (!cacheDir.equals(defaultCacheDir)) {
-            sb.append(CACHE_DIR_KEY + "=").append(cacheDir.replace("\\", "\\\\")).append("\n");
+            sb.append(CACHE_DIR_KEY + "=").append(cacheDir.replace("\\\\", "\\\\\\\\")).append("\\n");
         }
         if (!cardPicsDir.equals(defaultCardPicsDir)) {
-            sb.append(CARD_PICS_DIR_KEY + "=").append(cardPicsDir.replace("\\", "\\\\")).append("\n");
+            sb.append(CARD_PICS_DIR_KEY + "=").append(cardPicsDir.replace("\\\\", "\\\\\\\\")).append("\\n");
         }
-        if (cardPicsSubDirs.size() > 0) {
+        if (cardPicsSubDirs != null && cardPicsSubDirs.size() > 0) {
             sb.append(CARD_PICS_SUB_DIRS_KEY + "=");
-            final boolean needDelim = false;
+            boolean needDelim = false;
             for (final Map.Entry<String, String> entry : cardPicsSubDirs.entrySet()) {
                 if (needDelim) {
                     sb.append("|");
                 }
                 sb.append(entry.getKey()).append("->").append(entry.getValue());
+                needDelim = true;
             }
-            sb.append("\n");
+            sb.append("\\n");
         }
+
         if (sb.length() > 0) {
             FileUtil.writeFile(ForgeConstants.PROFILE_FILE, sb.toString());
         }
