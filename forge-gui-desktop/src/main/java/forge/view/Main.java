@@ -35,27 +35,14 @@ public final class Main {
      * Main entry point for Forge
      */
     public static void main(final String[] args) {
-        Sentry.init(options -> {
-            options.setEnableExternalConfiguration(true);
-            options.setRelease(BuildInfo.getVersionString());
-            options.setEnvironment(System.getProperty("os.name"));
-            options.setTag("Java Version", System.getProperty("java.version"));
-            options.setShutdownTimeoutMillis(5000);
-            // these belong to sentry.properties, but somehow some OS/Zip tool discards it?
-            if (options.getDsn() == null || options.getDsn().isEmpty())
-                options.setDsn("https://87bc8d329e49441895502737c069067b@sentry.cardforge.org//3");
-        }, true);
-
         // HACK - temporary solution to "Comparison method violates it's general contract!" crash
         System.setProperty("java.util.Arrays.useLegacyMergeSort", "true");
         //Turn off the Java 2D system's use of Direct3D to improve rendering speed (particularly when Full Screen)
         System.setProperty("sun.java2d.d3d", "false");
-        //Turn on OpenGl acceleration to improve performance
-        //System.setProperty("sun.java2d.opengl", "True");
-        
-        // New logic to choose the correct GUI implementation.
-        // This must be done before any other initialization to satisfy dependencies.
+
         boolean isCommandLine = args.length > 0;
+        
+        // Setup GUI interface first to satisfy all dependencies.
         if (isCommandLine) {
             GuiBase.setInterface(new HeadlessGui());
         } else {
@@ -64,6 +51,8 @@ public final class Main {
 
         // Branch based on command-line vs. full GUI mode.
         if (isCommandLine) {
+            // In command-line mode, run the specific task and exit.
+            // Do NOT initialize Sentry or the full GUI application.
             String mode = args[0].toLowerCase();
             switch (mode) {
                 case "sim":
@@ -72,7 +61,6 @@ public final class Main {
                 case "parse":
                     CardReaderExperiments.parseAllCards(args);
                     break;
-
                 case "server":
                     System.out.println("Dedicated server mode.\nNot implemented.");
                     break;
@@ -82,7 +70,17 @@ public final class Main {
             }
             System.exit(0);
         } else {
-            // Full GUI startup path
+            // Full GUI startup path. Initialize Sentry only for the GUI app.
+            Sentry.init(options -> {
+                options.setEnableExternalConfiguration(true);
+                options.setRelease(BuildInfo.getVersionString());
+                options.setEnvironment(System.getProperty("os.name"));
+                options.setTag("Java Version", System.getProperty("java.version"));
+                options.setShutdownTimeoutMillis(5000);
+                if (options.getDsn() == null || options.getDsn().isEmpty())
+                    options.setDsn("https://87bc8d329e49441895502737c069067b@sentry.cardforge.org//3");
+            }, true);
+            
             ExceptionHandler.registerErrorHandling();
             Singletons.initializeOnce(true);
             Singletons.getControl().initialize();
@@ -93,7 +91,10 @@ public final class Main {
     @Override
     protected void finalize() throws Throwable {
         try {
-            ExceptionHandler.unregisterErrorHandling();
+            // In GUI mode, an exception handler might be registered.
+            if (GuiBase.getInterface() != null && GuiBase.getInterface().isRunningOnDesktop()) {
+                ExceptionHandler.unregisterErrorHandling();
+            }
         } finally {
             super.finalize();
         }
