@@ -231,4 +231,302 @@ public final class FModel {
         }
     });
     private static final Supplier<ItemPool<PaperCard>> avatarPool = Suppliers.memoize(new Supplier<ItemPool<PaperCard>>() {
-        @O
+        @Override
+        public ItemPool<PaperCard> get() {
+            return ItemPool.createFrom(getMagicDb().getVariantCards().getAllCards(PaperCardPredicates.fromRules(CardRulesPredicates.IS_VANGUARD)), PaperCard.class);
+        }
+    });
+    private static final Supplier<ItemPool<PaperCard>> conspiracyPool = Suppliers.memoize(new Supplier<ItemPool<PaperCard>>() {
+        @Override
+        public ItemPool<PaperCard> get() {
+            return ItemPool.createFrom(getMagicDb().getVariantCards().getAllCards(PaperCardPredicates.fromRules(CardRulesPredicates.IS_CONSPIRACY)), PaperCard.class);
+        }
+    });
+    private static final Supplier<ItemPool<PaperCard>> dungeonPool = Suppliers.memoize(new Supplier<ItemPool<PaperCard>>() {
+        @Override
+        public ItemPool<PaperCard> get() {
+            return ItemPool.createFrom(getMagicDb().getVariantCards().getAllCards(PaperCardPredicates.fromRules(CardRulesPredicates.IS_DUNGEON)), PaperCard.class);
+        }
+    });
+    private static final Supplier<ItemPool<PaperCard>> attractionPool = Suppliers.memoize(new Supplier<ItemPool<PaperCard>>() {
+        @Override
+        public ItemPool<PaperCard> get() {
+            return ItemPool.createFrom(getMagicDb().getVariantCards().getAllCards(PaperCardPredicates.fromRules(CardRulesPredicates.IS_ATTRACTION)), PaperCard.class);
+        }
+    });
+    private static final Supplier<ItemPool<PaperCard>> contraptionPool = Suppliers.memoize(new Supplier<ItemPool<PaperCard>>() {
+        @Override
+        public ItemPool<PaperCard> get() {
+            return ItemPool.createFrom(getMagicDb().getVariantCards().getAllCards(PaperCardPredicates.fromRules(CardRulesPredicates.IS_CONTRAPTION)), PaperCard.class);
+        }
+    });
+
+    public static void initialize(final IProgressBar progressBar, Function<ForgePreferences, Void> adjustPrefs) {
+        initialize(progressBar, adjustPrefs, false);
+    }
+
+    public static void initialize(final IProgressBar progressBar, Function<ForgePreferences, Void> adjustPrefs, boolean isSimTest) {
+        ImageKeys.initializeDirs(
+            ForgeConstants.CACHE_CARD_PICS_DIR, ForgeConstants.CACHE_CARD_PICS_SUBDIR,
+            ForgeConstants.CACHE_TOKEN_PICS_DIR, ForgeConstants.CACHE_ICON_PICS_DIR,
+            ForgeConstants.CACHE_BOOSTER_PICS_DIR, ForgeConstants.CACHE_FATPACK_PICS_DIR,
+            ForgeConstants.CACHE_BOOSTERBOX_PICS_DIR, ForgeConstants.CACHE_PRECON_PICS_DIR,
+            ForgeConstants.CACHE_TOURNAMENTPACK_PICS_DIR);
+
+        try {
+            // In simulation mode, we need a non-GUI way to get preferences.
+            if (isSimTest) {
+                preferences = new ForgePreferences();
+            } else {
+                preferences = GuiBase.getForgePrefs();
+            }
+            if (adjustPrefs != null) {
+                adjustPrefs.apply(preferences);
+            }
+            GamePlayerUtil.getGuiPlayer().setName(preferences.getPref(FPref.PLAYER_NAME));
+        }
+        catch (final Exception exn) {
+            throw new RuntimeException(exn);
+        }
+
+        Lang.createInstance(getPreferences().getPref(FPref.UI_LANGUAGE));
+        Localizer.getInstance().initialize(getPreferences().getPref(FPref.UI_LANGUAGE), ForgeConstants.LANG_DIR);
+
+        // --- THIS IS THE CRITICAL FIX ---
+        // We use the 'isSimTest' flag to select a non-GUI observer, which prevents the call to FThreads.
+        final ProgressObserver progressBarBridge;
+        if (isSimTest) {
+            progressBarBridge = ProgressObserver.emptyObserver;
+        } else {
+            progressBarBridge = (progressBar == null) ?
+                ProgressObserver.emptyObserver : new ProgressObserver() {
+                    @Override
+                    public void setOperationName(final String name, final boolean usePercents) {
+                        FThreads.invokeInEdtLater(new Runnable() {
+                            @Override
+                            public void run() {
+                                progressBar.setDescription(name);
+                                progressBar.setPercentMode(usePercents);
+                            }
+                        });
+                    }
+                    @Override
+                    public void report(final int current, final int total) {
+                        FThreads.invokeInEdtLater(new Runnable() {
+                            @Override
+                            public void run() {
+                                progressBar.setMaximum(total);
+                                progressBar.setValue(current);
+                            }
+                        });
+                    }
+                };
+        }
+
+        loadDynamicGamedata();
+
+        reader = new CardStorageReader(ForgeConstants.CARD_DATA_DIR, progressBarBridge, false);
+        tokenReader = new CardStorageReader(ForgeConstants.TOKEN_DATA_DIR, progressBarBridge, false);
+
+        try {
+           customReader  = new CardStorageReader(ForgeConstants.USER_CUSTOM_CARDS_DIR, progressBarBridge, false);
+        } catch (Exception e) {
+            customReader = null;
+        }
+        try {
+            customTokenReader  = new CardStorageReader(ForgeConstants.USER_CUSTOM_TOKENS_DIR, progressBarBridge, false);
+        } catch (Exception e) {
+            customTokenReader = null;
+        }
+
+        CardTranslation.preloadTranslation(preferences.getPref(FPref.UI_LANGUAGE), ForgeConstants.LANG_DIR);
+
+        for (final String dname : ForgeConstants.PROFILE_DIRS) {
+            final File path = new File(dname);
+            if (path.isDirectory()) {
+                continue;
+            }
+            if (!path.mkdirs()) {
+                throw new RuntimeException("cannot create profile directory: " + dname);
+            }
+        }
+
+        ForgePreferences.DEV_MODE = preferences.getPrefBoolean(FPref.DEV_MODE_ENABLED);
+        ForgePreferences.UPLOAD_DRAFT = ForgePreferences.NET_CONN;
+        getMagicDb().setStandardPredicate(getFormats().getStandard().getFilterRules());
+        getMagicDb().setPioneerPredicate(getFormats().getPioneer().getFilterRules());
+        getMagicDb().setModernPredicate(getFormats().getModern().getFilterRules());
+        getMagicDb().setCommanderPredicate(getFormats().get("Commander").getFilterRules());
+        getMagicDb().setOathbreakerPredicate(getFormats().get("Oathbreaker").getFilterRules());
+        getMagicDb().setBrawlPredicate(getFormats().get("Brawl").getFilterRules());
+        getMagicDb().setFilteredHandsEnabled(preferences.getPrefBoolean(FPref.FILTERED_HANDS));
+
+        try {
+            getMagicDb().setMulliganRule(MulliganDefs.MulliganRule.valueOf(preferences.getPref(FPref.MULLIGAN_RULE)));
+        } catch(Exception e) {
+            getMagicDb().setMulliganRule(MulliganDefs.MulliganRule.London);
+        }
+
+        Spell.setPerformanceMode(preferences.getPrefBoolean(FPref.PERFORMANCE_MODE));
+        if (progressBar != null && !isSimTest) { // Added !isSimTest check
+            FThreads.invokeInEdtLater(new Runnable() {
+                @Override
+                public void run() {
+                    progressBar.setDescription(Localizer.getInstance().getMessage("splash.loading.decks"));
+                }
+            });
+        }
+        CardPreferences.load();
+        DeckPreferences.load();
+        ItemManagerConfig.load();
+
+        AiProfileUtil.loadAllProfiles(ForgeConstants.AI_PROFILE_DIR);
+        AiProfileUtil.setAiSideboardingMode(AiProfileUtil.AISideboardingMode.normalizedValueOf(getPreferences().getPref(FPref.MATCH_AI_SIDEBOARDING_MODE)));
+        
+        if(getPreferences().getPrefBoolean(FPref.DECKGEN_CARDBASED)) {
+            boolean commanderDeckGenMatrixLoaded=CardRelationMatrixGenerator.initialize();
+            deckGenMatrixLoaded=CardArchetypeLDAGenerator.initialize();
+            if(!commanderDeckGenMatrixLoaded){
+                deckGenMatrixLoaded=false;
+            }
+        }
+    }
+
+    private static boolean deckGenMatrixLoaded = false;
+    public static boolean isdeckGenMatrixLoaded(){
+        return deckGenMatrixLoaded;
+    }
+    public static QuestController getQuest() {
+        return quest.get();
+    }
+    public static ConquestController getConquest() {
+        return conquest.get();
+    }
+    public static ItemPool<PaperCard> getUniqueCardsNoAlt() {
+        return uniqueCardsNoAlt.get();
+    }
+    public static ItemPool<PaperCard> getAllCardsNoAlt() {
+        return allCardsNoAlt.get();
+    }
+    public static ItemPool<PaperCard> getArchenemyCards() {
+        return archenemyCards.get();
+    }
+    public static ItemPool<PaperCard> getPlanechaseCards() {
+        return planechaseCards.get();
+    }
+    public static ItemPool<PaperCard> getBrawlCommander() {
+        return brawlCommander.get();
+    }
+    public static ItemPool<PaperCard> getOathbreakerCommander() {
+        return oathbreakerCommander.get();
+    }
+    public static ItemPool<PaperCard> getTinyLeadersCommander() {
+        return tinyLeadersCommander.get();
+    }
+    public static ItemPool<PaperCard> getCommanderPool() {
+        return commanderPool.get();
+    }
+    public static ItemPool<PaperCard> getAvatarPool() {
+        return avatarPool.get();
+    }
+    public static ItemPool<PaperCard> getConspiracyPool() {
+        return conspiracyPool.get();
+    }
+    public static ItemPool<PaperCard> getDungeonPool() {
+        return dungeonPool.get();
+    }
+    public static ItemPool<PaperCard> getAttractionPool() {
+        return attractionPool.get();
+    }
+    public static ItemPool<PaperCard> getContraptionPool() {
+        return contraptionPool.get();
+    }
+    private static boolean keywordsLoaded = false;
+
+    public static void loadDynamicGamedata() {
+        if (!CardType.Constant.LOADED.isSet()) {
+            final Map<String, List<String>> contents = FileSection.parseSections(FileUtil.readFile(ForgeConstants.TYPE_LIST_FILE));
+            for (String sectionName: contents.keySet()) {
+                CardType.Helper.parseTypes(sectionName, contents.get(sectionName));
+            }
+            CardType.Constant.LOADED.set();
+        }
+        if (!keywordsLoaded) {
+            final List<String> nskwListFile = FileUtil.readFile(ForgeConstants.KEYWORD_LIST_FILE);
+            if (nskwListFile.size() > 1) {
+                for (final String s : nskwListFile) {
+                    if (s.length() > 1) {
+                        CardUtil.NON_STACKING_LIST.add(s);
+                    }
+                }
+            }
+            keywordsLoaded = true;
+        }
+    }
+
+    public static StaticData getMagicDb() {
+        return magicDb.get();
+    }
+    public static ForgePreferences getPreferences() {
+        return preferences;
+    }
+    public static ForgeNetPreferences getNetPreferences() {
+        return netPreferences.get();
+    }
+    public static AchievementCollection getAchievements(GameType gameType) {
+        switch (gameType) {
+            case Constructed:
+            case Draft:
+            case Sealed:
+            case Quest:
+            case PlanarConquest:
+            case Puzzle:
+            case Adventure:
+                return achievements.get().get(gameType);
+            case AdventureEvent:
+                return achievements.get().get(GameType.Adventure);
+            case QuestDraft:
+                return achievements.get().get(GameType.Quest);
+            default:
+                return achievements.get().get(GameType.Constructed);
+        }
+    }
+    public static IStorage<CardBlock> getBlocks() {
+        return blocks.get();
+    }
+    public static QuestPreferences getQuestPreferences() {
+        return questPreferences.get();
+    }
+    public static ConquestPreferences getConquestPreferences() {
+        return conquestPreferences.get();
+    }
+    public static GauntletData getGauntletData() {
+        return gauntletData;
+    }
+    public static void setGauntletData(final GauntletData data0) {
+        gauntletData = data0;
+    }
+    public static GauntletMini getGauntletMini() {
+        return gauntletMini.get();
+    }
+    public static CardCollections getDecks() {
+        return decks.get();
+    }
+    public static IStorage<ConquestPlane> getPlanes() {
+        return planes.get();
+    }
+    public static IStorage<QuestWorld> getWorlds() {
+        return worlds.get();
+    }
+    public static GameFormat.Collection getFormats() {
+        return formats.get();
+    }
+    public static IStorage<CardBlock> getFantasyBlocks() {
+        return fantasyBlocks.get();
+    }
+    public static IStorage<ThemedChaosDraft> getThemedChaosDrafts() {
+        return themedChaosDrafts.get();
+    }
+    public static TournamentData getTournamentData() { return tournamentData; }
+    public static void setTournamentData(TournamentData tournamentData0) { tournamentData = tournamentData0;  }
+}
