@@ -3,7 +3,6 @@ package forge.model;
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.Maps;
-
 import forge.*;
 import forge.CardStorageReader.ProgressObserver;
 import forge.ai.AiProfileUtil;
@@ -43,7 +42,6 @@ import forge.player.GamePlayerUtil;
 import forge.util.*;
 import forge.util.storage.IStorage;
 import forge.util.storage.StorageBase;
-
 import java.io.File;
 import java.util.List;
 import java.util.Map;
@@ -51,6 +49,31 @@ import java.util.function.Function;
 
 public final class FModel {
     private FModel() { } //don't allow creating instance
+
+    // New private static nested class to isolate GUI-dependent code
+    private static class GuiProgressObserver implements ProgressObserver {
+        private final IProgressBar progressBar;
+
+        private GuiProgressObserver(IProgressBar progressBar) {
+            this.progressBar = progressBar;
+        }
+
+        @Override
+        public void setOperationName(final String name, final boolean usePercents) {
+            FThreads.invokeInEdtLater(() -> {
+                progressBar.setDescription(name);
+                progressBar.setPercentMode(usePercents);
+            });
+        }
+
+        @Override
+        public void report(final int current, final int total) {
+            FThreads.invokeInEdtLater(() -> {
+                progressBar.setMaximum(total);
+                progressBar.setValue(current);
+            });
+        }
+    }
 
     private static CardStorageReader reader, tokenReader, customReader, customTokenReader;
     private static final Supplier<StaticData> magicDb = Suppliers.memoize(new Supplier<StaticData>() {
@@ -65,7 +88,6 @@ public final class FModel {
                 getPreferences().getPrefBoolean(FPref.UI_SMART_CARD_ART));
         }
     });
-
     private static final Supplier<QuestPreferences> questPreferences = Suppliers.memoize(new Supplier<QuestPreferences>() {
         @Override
         public QuestPreferences get() {
@@ -80,7 +102,6 @@ public final class FModel {
            return cp;
        }
     });
-
     private static ForgePreferences preferences;
     private static final Supplier<ForgeNetPreferences> netPreferences = Suppliers.memoize(new Supplier<ForgeNetPreferences>() {
         @Override
@@ -102,7 +123,6 @@ public final class FModel {
             return a;
         }
     });
-
     private static TournamentData tournamentData;
     private static GauntletData gauntletData;
     private static final Supplier<GauntletMini> gauntletMini = Suppliers.memoize(new Supplier<GauntletMini>() {
@@ -143,7 +163,6 @@ public final class FModel {
             return cb;
         }
     });
-
     private static final Supplier<IStorage<CardBlock>> fantasyBlocks = Suppliers.memoize(new Supplier<IStorage<CardBlock>>() {
         @Override
         public IStorage<CardBlock> get() {
@@ -175,7 +194,6 @@ public final class FModel {
             return w;
         }
     });
-
     private static final Supplier<GameFormat.Collection> formats = Suppliers.memoize(new Supplier<GameFormat.Collection>() {
         @Override
         public GameFormat.Collection get() {
@@ -272,7 +290,6 @@ public final class FModel {
             ForgeConstants.CACHE_BOOSTER_PICS_DIR, ForgeConstants.CACHE_FATPACK_PICS_DIR,
             ForgeConstants.CACHE_BOOSTERBOX_PICS_DIR, ForgeConstants.CACHE_PRECON_PICS_DIR,
             ForgeConstants.CACHE_TOURNAMENTPACK_PICS_DIR);
-
         try {
             // In simulation mode, we need a non-GUI way to get preferences.
             if (isSimTest) {
@@ -292,42 +309,17 @@ public final class FModel {
         Lang.createInstance(getPreferences().getPref(FPref.UI_LANGUAGE));
         Localizer.getInstance().initialize(getPreferences().getPref(FPref.UI_LANGUAGE), ForgeConstants.LANG_DIR);
 
-        // --- THIS IS THE CRITICAL FIX ---
-        // We use the 'isSimTest' flag to select a non-GUI observer, which prevents the call to FThreads.
+        // Refactored progress bar logic to prevent class loading errors in headless mode
         final ProgressObserver progressBarBridge;
-        if (isSimTest) {
+        if (isSimTest || progressBar == null) {
             progressBarBridge = ProgressObserver.emptyObserver;
         } else {
-            progressBarBridge = (progressBar == null) ?
-                ProgressObserver.emptyObserver : new ProgressObserver() {
-                    @Override
-                    public void setOperationName(final String name, final boolean usePercents) {
-                        FThreads.invokeInEdtLater(new Runnable() {
-                            @Override
-                            public void run() {
-                                progressBar.setDescription(name);
-                                progressBar.setPercentMode(usePercents);
-                            }
-                        });
-                    }
-                    @Override
-                    public void report(final int current, final int total) {
-                        FThreads.invokeInEdtLater(new Runnable() {
-                            @Override
-                            public void run() {
-                                progressBar.setMaximum(total);
-                                progressBar.setValue(current);
-                            }
-                        });
-                    }
-                };
+            progressBarBridge = new GuiProgressObserver(progressBar);
         }
 
         loadDynamicGamedata();
-
         reader = new CardStorageReader(ForgeConstants.CARD_DATA_DIR, progressBarBridge, false);
         tokenReader = new CardStorageReader(ForgeConstants.TOKEN_DATA_DIR, progressBarBridge, false);
-
         try {
            customReader  = new CardStorageReader(ForgeConstants.USER_CUSTOM_CARDS_DIR, progressBarBridge, false);
         } catch (Exception e) {
@@ -338,9 +330,7 @@ public final class FModel {
         } catch (Exception e) {
             customTokenReader = null;
         }
-
         CardTranslation.preloadTranslation(preferences.getPref(FPref.UI_LANGUAGE), ForgeConstants.LANG_DIR);
-
         for (final String dname : ForgeConstants.PROFILE_DIRS) {
             final File path = new File(dname);
             if (path.isDirectory()) {
@@ -350,7 +340,6 @@ public final class FModel {
                 throw new RuntimeException("cannot create profile directory: " + dname);
             }
         }
-
         ForgePreferences.DEV_MODE = preferences.getPrefBoolean(FPref.DEV_MODE_ENABLED);
         ForgePreferences.UPLOAD_DRAFT = ForgePreferences.NET_CONN;
         getMagicDb().setStandardPredicate(getFormats().getStandard().getFilterRules());
@@ -360,13 +349,11 @@ public final class FModel {
         getMagicDb().setOathbreakerPredicate(getFormats().get("Oathbreaker").getFilterRules());
         getMagicDb().setBrawlPredicate(getFormats().get("Brawl").getFilterRules());
         getMagicDb().setFilteredHandsEnabled(preferences.getPrefBoolean(FPref.FILTERED_HANDS));
-
         try {
             getMagicDb().setMulliganRule(MulliganDefs.MulliganRule.valueOf(preferences.getPref(FPref.MULLIGAN_RULE)));
         } catch(Exception e) {
             getMagicDb().setMulliganRule(MulliganDefs.MulliganRule.London);
         }
-
         Spell.setPerformanceMode(preferences.getPrefBoolean(FPref.PERFORMANCE_MODE));
         if (progressBar != null && !isSimTest) { // Added !isSimTest check
             FThreads.invokeInEdtLater(new Runnable() {
@@ -379,7 +366,6 @@ public final class FModel {
         CardPreferences.load();
         DeckPreferences.load();
         ItemManagerConfig.load();
-
         AiProfileUtil.loadAllProfiles(ForgeConstants.AI_PROFILE_DIR);
         AiProfileUtil.setAiSideboardingMode(AiProfileUtil.AISideboardingMode.normalizedValueOf(getPreferences().getPref(FPref.MATCH_AI_SIDEBOARDING_MODE)));
         
@@ -391,7 +377,6 @@ public final class FModel {
             }
         }
     }
-
     private static boolean deckGenMatrixLoaded = false;
     public static boolean isdeckGenMatrixLoaded(){
         return deckGenMatrixLoaded;
@@ -442,7 +427,6 @@ public final class FModel {
         return contraptionPool.get();
     }
     private static boolean keywordsLoaded = false;
-
     public static void loadDynamicGamedata() {
         if (!CardType.Constant.LOADED.isSet()) {
             final Map<String, List<String>> contents = FileSection.parseSections(FileUtil.readFile(ForgeConstants.TYPE_LIST_FILE));
@@ -463,7 +447,6 @@ public final class FModel {
             keywordsLoaded = true;
         }
     }
-
     public static StaticData getMagicDb() {
         return magicDb.get();
     }
