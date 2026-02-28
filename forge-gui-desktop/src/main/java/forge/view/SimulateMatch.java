@@ -1,6 +1,7 @@
 package forge.view;
 
 import java.io.File;
+import java.io.FilenameFilter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
@@ -42,8 +43,6 @@ import forge.util.storage.IStorage;
 public class SimulateMatch {
 
     public static void simulate(String[] args) {
-        // --- THIS IS THE FIRST FIX ---
-        // We now pass 'true' to tell the FModel that this is a simulation and not a GUI session.
         FModel.initialize(null, null, true);
 
         System.out.println("Simulation mode");
@@ -56,7 +55,6 @@ public class SimulateMatch {
         final Map<String, List<String>> params = new HashMap<>();
         List<String> options = null;
         for (int i = 1; i < args.length; i++) {
-            // "sim" is in the 0th slot
             final String a = args[i];
             if (a.charAt(0) == '-') {
                 if (a.length() < 2) {
@@ -166,7 +164,7 @@ public class SimulateMatch {
         System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> ... <deckX[.dck]> -a [profile1] [profile2] -D [D] -n [N] -m [M] -t [T] -p [P] -f [F] -q");
         System.out.println("\\tsim - stands for simulation mode");
         System.out.println("\\tdeck1 (or deck2,...,X) - constructed deck name or filename (has to be quoted when contains multiple words)");
-        System.out.println("\\ta - AI profiles to use for the corresponding decks (e.g., -a \\"Aggro\\" \\"Control\\"). Defaults to standard AI if omitted.");
+        System.out.println("\\ta - AI profiles to use for the corresponding decks (e.g., -a \\\"Aggro\\\" \\\"Control\\\"). Defaults to standard AI if omitted.");
         System.out.println("\\tdeck is treated as file if it ends with a dot followed by three numbers or letters");
         System.out.println("\\tD - absolute directory to load decks from");
         System.out.println("\\tN - number of games, defaults to 1 (Ignores match setting)");
@@ -184,9 +182,13 @@ public class SimulateMatch {
         final Game g1 = mc.createGame();
         // will run match in the same thread
         try {
-            TimeLimitedCodeBlock.runWithTimeout(() -> {
-                mc.startGame(g1);
-                sw.stop();
+            // --- LAMBDA FIX 1: Replaced lambda with anonymous Runnable class ---
+            TimeLimitedCodeBlock.runWithTimeout(new Runnable() {
+                @Override
+                public void run() {
+                    mc.startGame(g1);
+                    sw.stop();
+                }
             }, mc.getRules().getSimTimeout(), TimeUnit.SECONDS);
         } catch (TimeoutException e) {
             System.out.println("Stopping slow match as draw");
@@ -211,7 +213,6 @@ public class SimulateMatch {
         for (GameLogEntry l : log) {
             System.out.println(l);
         }
-        // If both players life totals to 0 in a single turn, the game should end in a draw
         if (g1.getOutcome().isDraw()) {
             System.out.printf("\\nGame Result: Game %d ended in a Draw! Took %d ms.%n", 1 + iGame, sw.getTime());
         } else {
@@ -248,7 +249,14 @@ public class SimulateMatch {
             if (!folder.isDirectory()) {
                 System.out.println("Directory not found - " + foldName);
             } else {
-                for (File deck : folder.listFiles((dir, name) -> name.endsWith(".dck"))) {
+                // --- LAMBDA FIX 2: Replaced lambda with anonymous FilenameFilter class ---
+                File[] deckFiles = folder.listFiles(new FilenameFilter() {
+                    @Override
+                    public boolean accept(File dir, String name) {
+                        return name.endsWith(".dck");
+                    }
+                });
+                for (File deck : deckFiles) {
                     Deck d = DeckSerializer.fromFile(deck);
                     if (d == null) {
                         System.out.println(TextUtil.concatNoSpace("Could not load deck - ", deck.getName(), ", match cannot start"));
@@ -267,7 +275,7 @@ public class SimulateMatch {
 
         if (numPlayers == 0) {
             System.out.println("No decks/Players found. Please try again.");
-            return; // Return here to prevent NullPointerException
+            return;
         }
 
         if ("bracket".equalsIgnoreCase(tournament)) {
@@ -354,7 +362,7 @@ public class SimulateMatch {
             File f = new File(baseDir + deckname);
             if (!f.exists()) {
                 System.out.println("No deck found in " + baseDir);
-                return null; // Return null if file does not exist
+                return null;
             }
             return DeckSerializer.fromFile(f);
         }
