@@ -56,8 +56,8 @@ function startDiagnostic(ws: WebSocket, payload: any) {
       "-jar",
       jarPath,
       "sim",
-      "-d", deck1.filename,
-      "-d", deck2.filename,
+      "-d", deck1.filename, deck2.filename, // Correct syntax
+
       "-a", deck1.aiProfile, deck2.aiProfile,
       "-n", "1",
   ];
