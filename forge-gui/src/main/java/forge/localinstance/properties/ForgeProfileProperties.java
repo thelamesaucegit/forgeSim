@@ -72,8 +72,22 @@ public class ForgeProfileProperties {
         cacheDir    = getDir(props, CACHE_DIR_KEY,     defaults.getRight());
         cardPicsDir = getDir(props, CARD_PICS_DIR_KEY, cacheDir + "pics" + File.separator + "cards" + File.separator);
         cardPicsSubDirs = getMap(props, CARD_PICS_SUB_DIRS_KEY);
-        decksDir    = getDir(props, DECKS_DIR_KEY, userDir + "decks" + File.separator);
-        decksConstructedDir = getDir(props, DECKS_CONSTRUCTED_DIR_KEY, decksDir + "constructed" + File.separator);
+       // Application working directory (root of where the app is running)
+String appRoot = new File("").getAbsolutePath() + File.separator;
+
+// Always resolve decks relative to application root
+String defaultDecksDir = appRoot + "decks" + File.separator;
+
+decksDir = getDir(props, DECKS_DIR_KEY, defaultDecksDir);
+decksConstructedDir = getDir(
+        props,
+        DECKS_CONSTRUCTED_DIR_KEY,
+        decksDir + "constructed" + File.separator
+);
+
+// ensure directories exist
+FileUtil.ensureDirectoryExists(decksDir);
+FileUtil.ensureDirectoryExists(decksConstructedDir);
 
 
         //ensure directories exist
