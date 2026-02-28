@@ -11,24 +11,15 @@ let activeGameState: GameState = getInitialState();
 // --- WebSocket Server Setup ---
 const wss = new WebSocketServer({ port: 8080 });
 const APP_DIR = process.cwd();
+
+// Based on your Java fix, this is the correct, final location for user decks.
+const FORGE_DECKS_DIR = path.join(APP_DIR, "decks", "constructed");
+
 console.log(`[INIT] Sidecar WebSocket server started on port 8080.`);
-console.log(`[INIT] Application root directory: ${APP_DIR}`);
+console.log(`[INIT] Decks will be written to the correct user data directory: ${FORGE_DECKS_DIR}`);
 
-// --- THE COMBINED SOLUTION: Create expected user directories ---
-try {
-    const userDir = path.join(APP_DIR, ".forge");
-    const cacheDir = path.join(APP_DIR, ".cache", "forge");
-
-    if (!fs.existsSync(userDir)) {
-        console.log(`[INIT] Creating expected user directory: ${userDir}`);
-        fs.mkdirSync(userDir, { recursive: true });
-    }
-    if (!fs.existsSync(cacheDir)) {
-        console.log(`[INIT] Creating expected cache directory: ${cacheDir}`);
-        fs.mkdirSync(cacheDir, { recursive: true });
-    }
-} catch (e: any) {
-    console.error(`[INIT] FATAL: Could not create user directories.`, e.message);
+if (!fs.existsSync(FORGE_DECKS_DIR)) {
+    fs.mkdirSync(FORGE_DECKS_DIR, { recursive: true });
 }
 
 wss.on("connection", (ws) => {
@@ -39,46 +30,64 @@ wss.on("connection", (ws) => {
     try {
         const data = JSON.parse(message.toString());
         if (data.type === "START_MATCH") {
-          console.log("[DIAG] Received START_MATCH signal. Running final test.");
+          const { deck1, deck2 } = data.payload;
           activeGameState = getInitialState();
-          startForgeSimulation(ws);
+          startForgeSimulation(ws, deck1, deck2);
         }
-    } catch (e) { console.error("[WSS] Failed to parse incoming WebSocket message:", e); }
+    } catch (e) {
+        console.error("[WSS] Failed to parse incoming WebSocket message:", e);
+    }
   });
 });
 
-// --- Final Test Simulation Logic ---
-function startForgeSimulation(ws: WebSocket) {
+// --- Final Production Simulation Logic ---
+function startForgeSimulation(ws: WebSocket, deck1: any, deck2: any) {
   simulationStatus = "running";
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
 
+  // Write decks to the correct location.
+  try {
+    const deck1Path = path.join(FORGE_DECKS_DIR, deck1.filename);
+    const deck2Path = path.join(FORGE_DECKS_DIR, deck2.filename);
+    fs.writeFileSync(deck1Path, deck1.content);
+    fs.writeFileSync(deck2Path, deck2.content);
+    console.log(`[SIM] Wrote deck files to: ${FORGE_DECKS_DIR}`);
+  } catch(e: any) {
+    console.error(`[SIM] FATAL: Failed during deck file write.`, e.message);
+    simulationStatus = "idle";
+    return;
+  }
+
   broadcast({ type: "SIMULATION_STARTING" });
 
-  const knownGoodDecksDir = path.join(APP_DIR, "res", "geneticaidecks");
-
-  // --- THE COMBINED SOLUTION: Add memory flag and use known-good data ---
+  // --- THE FINAL, VERIFIED COMMAND ---
+  // This command is a direct translation of your locally-tested, working command,
+  // plus the necessary environmental flags for the Docker container.
   const javaArgs = [
-      "-Xmx1024m",              // Explicitly set max heap size to 1GB
-      `-Djava.awt.headless=true`,
-      `-Dforge.home=${APP_DIR}`,
+      "-Xmx1024m",                // Set max heap size
+      `-Djava.awt.headless=true`,   // Required for headless server environment
+      `-Dforge.home=${APP_DIR}`,    // Sets the user data directory root to /app
       "-jar",
       jarPath,
       "sim",
-      "-t", "RoundRobin",
-      "-p", "2",
-      "-D", knownGoodDecksDir,
-      "-n", "1",
+      "-d", deck1.filename,       // Filename only
+      "-d", deck2.filename,       // Filename only
+      "-a", deck1.aiProfile,      // AI Profile for deck 1
+      "-a", deck2.aiProfile,      // AI Profile for deck 2
+      "-n", "1",                  // Run 1 game
   ];
 
-  console.log(`[DIAG] Spawning Java process with final command: java ${javaArgs.join(' ')}`);
+  console.log(`[SIM] Spawning Java process with final command: java ${javaArgs.join(' ')}`);
   const forgeProcess = spawn("java", javaArgs, { cwd: APP_DIR });
 
+  // The application prints its log to standard output.
   forgeProcess.stdout.on('data', (data) => {
     processLogChunk(data.toString());
   });
 
   forgeProcess.stderr.on('data', (data) => {
       console.error(`[FORGE_STDERR]: ${data.toString()}`);
+      broadcast({ type: "ERROR", message: `Forge Error: ${data.toString()}` });
   });
 
   const processLogChunk = (chunk: string) => {
@@ -94,7 +103,7 @@ function startForgeSimulation(ws: WebSocket) {
   };
 
   forgeProcess.on("close", (code) => {
-    console.log(`[DIAG] Final test exited with code ${code}`);
+    console.log(`[SIM] Forge process exited with code ${code}`);
     simulationStatus = "finished";
     broadcast({ type: "SIMULATION_COMPLETE", finalState: activeGameState });
   });
