@@ -27,15 +27,25 @@ export function getInitialState(): GameState {
 }
 
 // --- Regex Definitions with Named Capture Groups ---
-const regexPlayerSetup = /(?<player>Ai\(\d+\)-[\w-]+)/g;
+
+// FIX: Updated to correctly parse player names with deck extensions and AI profiles.
+const regexPlayerSetup = /(?<player>Ai\(\d+\)-[\w.-]+(?: \(AI: [\w.]+\))?)/g;
+
 const regexTurn = /Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/;
 const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)/;
-const regexCast = /Add to stack: (?<player>Ai\(\d+\)-[\w-]+) cast (?<cardName>.+) \((?<cardId>\d+)\)/;
+
+// FIX: Updated to be robust against complex player names.
+const regexCast = /Add to stack: (?<player>.+) cast (?<cardName>.+) \((?<cardId>\d+)\)/;
+
 const regexDestroy = /Destroy (?<cardName>.+) \((?<cardId>\d+)\)\./;
 const regexZoneChange = /\[Zone Changer: (?<cardName>.+) \((?<cardId>\d+)\)\]/;
-const regexDamage = /Damage: .* deals (?<damage>\d+) .*damage to (?<targetPlayer>Ai\(\d+\)-[\w-]+)\./;
-const regexLifeGain = /(?<player>Ai\(\d+\)-[\w-]+) gains (?<amount>\d+) life\./;
-const regexCombatDamage = /Damage: (?<cardName>.+) \((?<cardId>\d+)\) deals \d+ combat damage to (?<targetPlayer>Ai\(\d+\)-[\w-]+)\./;
+
+// FIX: Updated to be robust against complex player names.
+const regexDamage = /Damage: .* deals (?<damage>\d+) .*damage to (?<targetPlayer>.+)\./;
+// FIX: Updated to be robust against complex player names.
+const regexLifeGain = /(?<player>.+) gains (?<amount>\d+) life\./;
+// FIX: Updated to be robust against complex player names.
+const regexCombatDamage = /Damage: (?<cardName>.+) \((?<cardId>\d+)\) deals \d+ combat damage to (?<targetPlayer>.+)\./;
 
 // --- Main Parser Function ---
 export function parseLogLine(line: string, currentState: GameState): GameState | null {
@@ -115,7 +125,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     const { cardName, cardId, targetPlayer } = match.groups;
     const controller = Object.keys(state.players).find(p => p !== targetPlayer);
     if (controller && state.players[controller]) {
-      // THE FIX IS HERE: We explicitly tell TypeScript that 'c' is of type 'Card'.
       const exists = state.players[controller].battlefield.some((c: Card) => c.id === cardId);
       if (!exists) {
         state.players[controller].battlefield.push({ id: cardId, name: cardName });
