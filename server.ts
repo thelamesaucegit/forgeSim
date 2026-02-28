@@ -11,7 +11,6 @@ const FORGE_DECKS_DIR = path.join(APP_DIR, "decks", "constructed");
 const wss = new WebSocketServer({ port: 8080 });
 console.log(`[INIT] Sidecar WebSocket server started on port 8080.`);
 wss.on('listening', () => console.log('[HEALTH_CHECK] Server is listening on port 8080.'));
-
 if (!fs.existsSync(FORGE_DECKS_DIR)) {
     fs.mkdirSync(FORGE_DECKS_DIR, { recursive: true });
 }
@@ -19,7 +18,6 @@ if (!fs.existsSync(FORGE_DECKS_DIR)) {
 wss.on("connection", (ws) => {
   console.log("[WSS] Client connected.");
   ws.send(JSON.stringify({ type: "CONNECTION_ESTABLISHED", status: "FINAL_STRACE_DIAGNOSTIC_READY" }));
-
   ws.on("message", (message) => {
     try {
         const data = JSON.parse(message.toString());
@@ -43,11 +41,14 @@ function startStraceDiagnostic(ws: WebSocket, payload: any) {
     console.log(`[DIAG] Deck files written to correct user data directory: ${FORGE_DECKS_DIR}`);
   } catch(e: any) {
     console.error(`[DIAG] FATAL: Failed during deck file write.`, e.message);
+    ws.send(JSON.stringify({ type: "ERROR", message: "Failed to write deck files to disk." }));
     return;
   }
 
-  // We are wrapping your proven, working command syntax with `strace`.
   const commandToRun = "strace";
+  
+  // *** FIX: Corrected argument structure for AI profiles ***
+  // The '-a' flag should be followed by a list of all profiles.
   const commandArgs = [
       "-f", // Follow child processes
       "java",
@@ -59,13 +60,19 @@ function startStraceDiagnostic(ws: WebSocket, payload: any) {
       "sim",
       "-d", deck1.filename, // Filename only
       "-d", deck2.filename, // Filename only
-      "-a", deck1.aiProfile,
-      "-a", deck2.aiProfile,
+      "-a", deck1.aiProfile, deck2.aiProfile, // Corrected AI profile arguments
       "-n", "1",
   ];
 
   console.log(`[DIAGNOSTIC] Spawning process with final diagnostic command: ${commandToRun} ${commandArgs.join(' ')}`);
+
   const diagnosticProcess = spawn(commandToRun, commandArgs, { cwd: APP_DIR });
+
+  // *** RECOMMENDATION: Add error handling for the spawn process itself ***
+  diagnosticProcess.on('error', (err) => {
+    console.error('[FATAL_SPAWN_ERROR] Failed to start the simulation process.', err);
+    broadcast({ type: "ERROR", message: 'Failed to start simulation process. Check server logs.' });
+  });
 
   // `strace` prints all diagnostic data to STDERR. This is our only log source for this test.
   diagnosticProcess.stderr.on('data', (data) => {
@@ -78,9 +85,15 @@ function startStraceDiagnostic(ws: WebSocket, payload: any) {
       console.log(`[RAW_FORGE_LOG]: ${data.toString()}`);
   });
 
+  // *** RECOMMENDATION: Enhance exit code logging and reporting ***
   diagnosticProcess.on("close", (code) => {
-    console.log(`[DIAGNOSTIC] Final strace process exited with code ${code}`);
-    broadcast({ type: "DIAGNOSTIC_COMPLETE", message: `Diagnostic finished with exit code ${code}.` });
+    if (code === 0) {
+      console.log(`[DIAGNOSTIC_SUCCESS] Final strace process exited with code ${code}`);
+      broadcast({ type: "DIAGNOSTIC_COMPLETE", success: true, message: `Diagnostic finished successfully.` });
+    } else {
+      console.error(`[DIAGNOSTIC_FAILURE] Final strace process exited with non-zero code ${code}`);
+      broadcast({ type: "DIAGNOSTIC_COMPLETE", success: false, message: `Diagnostic failed with exit code ${code}. Check server logs for STRACE_OUTPUT.` });
+    }
   });
 }
 
