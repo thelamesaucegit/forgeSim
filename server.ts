@@ -47,11 +47,10 @@ function startStraceDiagnostic(ws: WebSocket, payload: any) {
 
   const commandToRun = "strace";
   
-  // *** FIX: Corrected argument structure for AI profiles ***
-  // The '-a' flag should be followed by a list of all profiles.
   const commandArgs = [
       "-f", // Follow child processes
       "java",
+      "-verbose:class", // Re-enabled verbose flag for detailed class loading output
       "-Xmx1024m",
       `-Djava.awt.headless=true`,
       `-Dforge.home=${APP_DIR}`,
@@ -60,7 +59,7 @@ function startStraceDiagnostic(ws: WebSocket, payload: any) {
       "sim",
       "-d", deck1.filename, // Filename only
       "-d", deck2.filename, // Filename only
-      "-a", deck1.aiProfile, deck2.aiProfile, // Corrected AI profile arguments
+      "-a", deck1.aiProfile, deck2.aiProfile,
       "-n", "1",
   ];
 
@@ -68,31 +67,28 @@ function startStraceDiagnostic(ws: WebSocket, payload: any) {
 
   const diagnosticProcess = spawn(commandToRun, commandArgs, { cwd: APP_DIR });
 
-  // *** RECOMMENDATION: Add error handling for the spawn process itself ***
   diagnosticProcess.on('error', (err) => {
     console.error('[FATAL_SPAWN_ERROR] Failed to start the simulation process.', err);
     broadcast({ type: "ERROR", message: 'Failed to start simulation process. Check server logs.' });
   });
 
-  // `strace` prints all diagnostic data to STDERR. This is our only log source for this test.
+  // Both strace and the verbose java output will go to STDERR
   diagnosticProcess.stderr.on('data', (data) => {
-      // Log the raw strace output for analysis.
-      console.log(`[STRACE_OUTPUT]: ${data.toString()}`);
+      console.log(`[STDERR_OUTPUT]: ${data.toString()}`);
   });
 
-  // Also listen to stdout, just in case the simulation succeeds.
+  // stdout will contain the actual forge simulation log if it succeeds
   diagnosticProcess.stdout.on('data', (data) => {
-      console.log(`[RAW_FORGE_LOG]: ${data.toString()}`);
+      console.log(`[STDOUT_OUTPUT]: ${data.toString()}`);
   });
 
-  // *** RECOMMENDATION: Enhance exit code logging and reporting ***
   diagnosticProcess.on("close", (code) => {
     if (code === 0) {
       console.log(`[DIAGNOSTIC_SUCCESS] Final strace process exited with code ${code}`);
       broadcast({ type: "DIAGNOSTIC_COMPLETE", success: true, message: `Diagnostic finished successfully.` });
     } else {
       console.error(`[DIAGNOSTIC_FAILURE] Final strace process exited with non-zero code ${code}`);
-      broadcast({ type: "DIAGNOSTIC_COMPLETE", success: false, message: `Diagnostic failed with exit code ${code}. Check server logs for STRACE_OUTPUT.` });
+      broadcast({ type: "DIAGNOSTIC_COMPLETE", success: false, message: `Diagnostic failed with exit code ${code}. Check server logs.` });
     }
   });
 }
