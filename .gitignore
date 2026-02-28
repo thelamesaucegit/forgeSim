@@ -64,32 +64,12 @@ forge-gui-mobile-dev/**/Thumbs.db
 forge-gui-mobile-dev/res
 forge-gui-mobile-dev/testAssets
 
-forge-gui/res/cardsfolder/*.bat
-
-# Generated changelog file
-forge-gui/release-files/CHANGES.txt
-
-forge-gui/res/PerSetTrackingResults
-forge-gui/res/decks
-forge-gui/res/layouts
-forge-gui/res/pics*
-forge-gui/res/pics_product
-
-forge-gui/res/skins/**/PerSetTrackingResults
-forge-gui/res/skins/**/decks
-forge-gui/res/skins/**/layouts
-forge-gui/res/skins/**/pics*
-forge-gui/res/skins/**/pics_product
-
-forge-gui/res/quest/world/1996-05[!!-~]Ice[!!-~]Age/duels/.directory
-
 forge-gui/tools/AllCards.json
 forge-gui/tools/EditionTrackingResults
 forge-gui/tools/PerSetTrackingResults
 
 *.tiled-session
-/forge-gui/res/adventure/*.tiled-project
-/forge-gui/res/adventure/*.tiled-session
+
 
 # Ignore python temporaries
 __pycache__
