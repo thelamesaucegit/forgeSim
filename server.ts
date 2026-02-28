@@ -45,13 +45,13 @@ function startDiagnostic(ws: WebSocket, payload: any) {
     return;
   }
 
-  // *** THE FIX IS HERE: We are now running the java command directly without strace ***
+  // We are running the java command directly without strace for a clean log.
   const commandToRun = "java";
   
   const commandArgs = [
-      "-verbose:class", // Keep verbose flag for detailed class loading output
       "-Xmx1024m",
       `-Djava.awt.headless=true`,
+      `-Dsentry.enabled=false`, // *** THE FIX IS HERE: This flag disables Sentry entirely. ***
       `-Dforge.home=${APP_DIR}`,
       "-jar",
       jarPath,
@@ -71,7 +71,7 @@ function startDiagnostic(ws: WebSocket, payload: any) {
     broadcast({ type: "ERROR", message: 'Failed to start simulation process. Check server logs.' });
   });
 
-  // The verbose java output will go to STDERR
+  // verbose:class output will go to stderr.
   diagnosticProcess.stderr.on('data', (data) => {
       console.log(`[JVM_STDERR]: ${data.toString()}`);
   });
