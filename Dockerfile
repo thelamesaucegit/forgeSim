@@ -5,6 +5,9 @@ WORKDIR /usr/src/app
 # Clone your newly pruned repository
 RUN git clone https://github.com/thelamesaucegit/forgeSim.git .
 
+# --- DIAGNOSTIC STEP: Print the contents of Main.java to the build log ---
+RUN cat /usr/src/app/forge-gui-desktop/src/main/java/forge/view/Main.java
+
 # A simple, standard Maven build. It will only build the modules 
 # listed in your updated root pom.xml.
 RUN mvn package -DskipTests
