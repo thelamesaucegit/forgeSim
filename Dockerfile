@@ -5,6 +5,10 @@ WORKDIR /usr/src/app
 # Clone your newly pruned repository
 RUN git clone https://github.com/thelamesaucegit/forgeSim.git .
 
+# --- DIAGNOSTIC STEP: Print the latest commit hash to the build log ---
+RUN echo "--- DIAGNOSTIC: Last commit in cloned repository ---" && git log -1 --oneline && echo "---------------------------------------------------"
+
+
 # --- DIAGNOSTIC STEP: Print the contents of Main.java to the build log ---
 RUN cat /usr/src/app/forge-gui-desktop/src/main/java/forge/view/Main.java
 
