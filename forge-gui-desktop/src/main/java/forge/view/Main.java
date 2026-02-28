@@ -17,89 +17,61 @@
  */
 package forge.view;
 
-import forge.GuiDesktop;
-import forge.Singletons;
-import forge.error.ExceptionHandler;
 import forge.gui.GuiBase;
 import forge.gui.HeadlessGui;
 import forge.gui.card.CardReaderExperiments;
-import forge.util.BuildInfo;
-import io.sentry.Sentry;
 
 /**
- * Main class for Forge's swing application view.
+ * Main entry point for Forge. Acts as a simple router to command-line or GUI mode.
  */
 public final class Main {
 
     /**
-     * Main entry point for Forge
+     * Main entry point for Forge.
      */
     public static void main(final String[] args) {
-        // HACK - temporary solution to "Comparison method violates it's general contract!" crash
+        // These system properties are safe and can be set for both modes.
         System.setProperty("java.util.Arrays.useLegacyMergeSort", "true");
-        //Turn off the Java 2D system's use of Direct3D to improve rendering speed (particularly when Full Screen)
         System.setProperty("sun.java2d.d3d", "false");
 
-        boolean isCommandLine = args.length > 0;
-        
-        // Setup GUI interface first to satisfy all dependencies.
-        if (isCommandLine) {
-            GuiBase.setInterface(new HeadlessGui());
+        if (args.length > 0) {
+            runCommandLineMode(args);
         } else {
-            GuiBase.setInterface(new GuiDesktop());
-        }
-
-        // Branch based on command-line vs. full GUI mode.
-        if (isCommandLine) {
-            // In command-line mode, run the specific task and exit.
-            // Do NOT initialize Sentry or the full GUI application.
-            String mode = args[0].toLowerCase();
-            switch (mode) {
-                case "sim":
-                    SimulateMatch.simulate(args);
-                    break;
-                case "parse":
-                    CardReaderExperiments.parseAllCards(args);
-                    break;
-                case "server":
-                    System.out.println("Dedicated server mode.\nNot implemented.");
-                    break;
-                default:
-                    System.out.println("Unknown mode.\nKnown mode is 'sim', 'parse' ");
-                    break;
-            }
-            System.exit(0);
-        } else {
-            // Full GUI startup path. Initialize Sentry only for the GUI app.
-            Sentry.init(options -> {
-                options.setEnableExternalConfiguration(true);
-                options.setRelease(BuildInfo.getVersionString());
-                options.setEnvironment(System.getProperty("os.name"));
-                options.setTag("Java Version", System.getProperty("java.version"));
-                options.setShutdownTimeoutMillis(5000);
-                if (options.getDsn() == null || options.getDsn().isEmpty())
-                    options.setDsn("https://87bc8d329e49441895502737c069067b@sentry.cardforge.org//3");
-            }, true);
-            
-            ExceptionHandler.registerErrorHandling();
-            Singletons.initializeOnce(true);
-            Singletons.getControl().initialize();
+            // This call is now to a separate class, ensuring no GUI components
+            // are loaded by the JVM in command-line mode.
+            GuiAppRunner.start();
         }
     }
 
-    @SuppressWarnings("deprecation")
-    @Override
-    protected void finalize() throws Throwable {
-        try {
-            // In GUI mode, an exception handler might be registered.
-            if (GuiBase.getInterface() != null && GuiBase.getInterface().isRunningOnDesktop()) {
-                ExceptionHandler.unregisterErrorHandling();
-            }
-        } finally {
-            super.finalize();
+    /**
+     * Initializes and runs the application in command-line mode (e.g., 'sim').
+     * No Swing/AWT classes are ever referenced in this execution path.
+     */
+    private static void runCommandLineMode(final String[] args) {
+        // Set the headless GUI implementation first.
+        GuiBase.setInterface(new HeadlessGui());
+
+        // Process the command-line arguments.
+        String mode = args[0].toLowerCase();
+        switch (mode) {
+            case "sim":
+                SimulateMatch.simulate(args);
+                break;
+            case "parse":
+                CardReaderExperiments.parseAllCards(args);
+                break;
+            case "server":
+                System.out.println("Dedicated server mode.\nNot implemented.");
+                break;
+            default:
+                System.out.println("Unknown mode.\nKnown mode is 'sim', 'parse' ");
+                break;
         }
+        System.exit(0);
     }
 
+    // This class is now just a router, so finalize is no longer needed here.
+    
     // disallow instantiation
     private Main() {
     }
