@@ -180,8 +180,12 @@ public final class FModel {
         Lang.createInstance(getPreferences().getPref(FPref.UI_LANGUAGE));
         Localizer.getInstance().initialize(getPreferences().getPref(FPref.UI_LANGUAGE), ForgeConstants.LANG_DIR);
 
-        final ProgressObserver progressBarBridge = (progressBar == null) ?
-                ProgressObserver.emptyObserver : new ProgressObserver() {
+      final ProgressObserver progressBarBridge;
+if (isSimTest) {
+    progressBarBridge = ProgressObserver.emptyObserver;
+} else {
+    progressBarBridge = (progressBar == null) ?
+        ProgressObserver.emptyObserver : new ProgressObserver() {
             @Override
             public void setOperationName(final String name, final boolean usePercents) {
                 FThreads.invokeInEdtLater(() -> {
