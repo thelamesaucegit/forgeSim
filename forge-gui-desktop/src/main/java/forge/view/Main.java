@@ -21,6 +21,7 @@ import forge.GuiDesktop;
 import forge.Singletons;
 import forge.error.ExceptionHandler;
 import forge.gui.GuiBase;
+import forge.gui.HeadlessGui;
 import forge.gui.card.CardReaderExperiments;
 import forge.util.BuildInfo;
 import io.sentry.Sentry;
@@ -51,9 +52,18 @@ public final class Main {
         System.setProperty("sun.java2d.d3d", "false");
         //Turn on OpenGl acceleration to improve performance
         //System.setProperty("sun.java2d.opengl", "True");
+        
+        // New logic to choose the correct GUI implementation.
+        // This must be done before any other initialization to satisfy dependencies.
+        boolean isCommandLine = args.length > 0;
+        if (isCommandLine) {
+            GuiBase.setInterface(new HeadlessGui());
+        } else {
+            GuiBase.setInterface(new GuiDesktop());
+        }
 
-        // Check for command line arguments first to avoid GUI initialization in headless mode.
-        if (args.length > 0) {
+        // Branch based on command-line vs. full GUI mode.
+        if (isCommandLine) {
             String mode = args[0].toLowerCase();
             switch (mode) {
                 case "sim":
@@ -62,6 +72,7 @@ public final class Main {
                 case "parse":
                     CardReaderExperiments.parseAllCards(args);
                     break;
+
                 case "server":
                     System.out.println("Dedicated server mode.\nNot implemented.");
                     break;
@@ -69,23 +80,13 @@ public final class Main {
                     System.out.println("Unknown mode.\nKnown mode is 'sim', 'parse' ");
                     break;
             }
-            // Exit after completing the command line task.
             System.exit(0);
-            return; // Return to ensure no further code in main is executed.
+        } else {
+            // Full GUI startup path
+            ExceptionHandler.registerErrorHandling();
+            Singletons.initializeOnce(true);
+            Singletons.getControl().initialize();
         }
-
-        // If no arguments are provided, proceed with full GUI initialization.
-        //setup GUI interface
-        GuiBase.setInterface(new GuiDesktop());
-
-        //install our error handler
-        ExceptionHandler.registerErrorHandling();
-
-        // Start splash screen first, then data models, then controller.
-        Singletons.initializeOnce(true);
-
-        // Controller can now step in and take over.
-        Singletons.getControl().initialize();
     }
 
     @SuppressWarnings("deprecation")
