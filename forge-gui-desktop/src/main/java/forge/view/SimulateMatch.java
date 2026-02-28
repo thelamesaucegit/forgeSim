@@ -1,18 +1,12 @@
 package forge.view;
 
 import java.io.File;
-import java.io.FilenameFilter;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.Callable;
-import java.util.concurrent.ExecutionException;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
-import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -41,17 +35,14 @@ import forge.model.FModel;
 import forge.player.GamePlayerUtil;
 import forge.util.Lang;
 import forge.util.TextUtil;
+import forge.util.TimeLimitedCodeBlock;
 import forge.util.WordUtil;
 import forge.util.storage.IStorage;
-
-// NOTE: The TimeLimitedCodeBlock class you provided is in the forge.view package,
-// but the original code had it in forge.util. I have removed the import for
-// forge.util.TimeLimitedCodeBlock to use the one in the current package.
-// If it is in forge.util, you will need to add that import back.
 
 public class SimulateMatch {
 
     public static void simulate(String[] args) {
+        // We pass 'true' to tell the FModel that this is a simulation and not a GUI session.
         FModel.initialize(null, null, true);
 
         System.out.println("Simulation mode");
@@ -64,6 +55,7 @@ public class SimulateMatch {
         final Map<String, List<String>> params = new HashMap<String, List<String>>();
         List<String> options = null;
         for (int i = 1; i < args.length; i++) {
+            // "sim" is in the 0th slot
             final String a = args[i];
             if (a.charAt(0) == '-') {
                 if (a.length() < 2) {
@@ -189,8 +181,8 @@ public class SimulateMatch {
         final StopWatch sw = new StopWatch();
         sw.start();
         final Game g1 = mc.createGame();
+        // will run match in the same thread
         try {
-            // --- LAMBDA FIX: Replaced lambda with its Java 7 equivalent anonymous class ---
             TimeLimitedCodeBlock.runWithTimeout(new Runnable() {
                 @Override
                 public void run() {
@@ -198,13 +190,10 @@ public class SimulateMatch {
                     sw.stop();
                 }
             }, mc.getRules().getSimTimeout(), TimeUnit.SECONDS);
-        } catch (Exception e) {
-            // Handle TimeoutException as well as other exceptions
-            if (e instanceof TimeoutException) {
-                System.out.println("Stopping slow match as draw");
-            } else {
-                e.printStackTrace();
-            }
+        } catch (TimeoutException e) {
+            System.out.println("Stopping slow match as draw");
+        } catch (Exception e) { // Simplified catch block
+            e.printStackTrace();
         } finally {
             if (sw.isStarted()) {
                 sw.stop();
@@ -224,6 +213,7 @@ public class SimulateMatch {
         for (GameLogEntry l : log) {
             System.out.println(l);
         }
+        // If both players life totals to 0 in a single turn, the game should end in a draw
         if (g1.getOutcome().isDraw()) {
             System.out.printf("\\nGame Result: Game %d ended in a Draw! Took %d ms.%n", 1 + iGame, sw.getTime());
         } else {
@@ -232,12 +222,14 @@ public class SimulateMatch {
     }
 
     private static void simulateTournament(Map<String, List<String>> params, GameRules rules, boolean outputGamelog) {
+        // This method remains unchanged but now relies on the corrected calling context
         String tournament = params.get("t").get(0);
         AbstractTournament tourney = null;
         int matchPlayers = params.containsKey("p") ? Integer.parseInt(params.get("p").get(0)) : 2;
         DeckGroup deckGroup = new DeckGroup("SimulatedTournament");
         List<TournamentPlayer> players = new ArrayList<TournamentPlayer>();
         int numPlayers = 0;
+
         if (params.containsKey("d")) {
             for (String deck : params.get("d")) {
                 Deck d = deckFromCommandLineParameter(deck, rules.getGameType());
@@ -260,26 +252,21 @@ public class SimulateMatch {
             if (!folder.isDirectory()) {
                 System.out.println("Directory not found - " + foldName);
             } else {
-                // --- LAMBDA FIX: Replaced lambda with its Java 7 equivalent anonymous class ---
-                File[] deckFiles = folder.listFiles(new FilenameFilter() {
-                    @Override
-                    public boolean accept(File dir, String name) {
-                        return name.endsWith(".dck");
+                for (File deck : folder.listFiles()) { // Simplified from lambda
+                    if (deck.getName().endsWith(".dck")) {
+                        Deck d = DeckSerializer.fromFile(deck);
+                        if (d == null) {
+                            System.out.println(TextUtil.concatNoSpace("Could not load deck - ", deck.getName(), ", match cannot start"));
+                            return;
+                        }
+                        deckGroup.addAiDeck(d);
+                        String aiProfile = "";
+                        if (params.containsKey("a") && numPlayers < params.get("a").size()) {
+                            aiProfile = params.get("a").get(numPlayers);
+                        }
+                        players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0, 0, null, aiProfile), numPlayers));
+                        numPlayers++;
                     }
-                });
-                for (File deck : deckFiles) {
-                    Deck d = DeckSerializer.fromFile(deck);
-                    if (d == null) {
-                        System.out.println(TextUtil.concatNoSpace("Could not load deck - ", deck.getName(), ", match cannot start"));
-                        return;
-                    }
-                    deckGroup.addAiDeck(d);
-                    String aiProfile = "";
-                    if (params.containsKey("a") && numPlayers < params.get("a").size()) {
-                        aiProfile = params.get("a").get(numPlayers);
-                    }
-                    players.add(new TournamentPlayer(GamePlayerUtil.createAiPlayer(d.getName(), 0, 0, null, aiProfile), numPlayers));
-                    numPlayers++;
                 }
             }
         }
