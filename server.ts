@@ -17,24 +17,24 @@ if (!fs.existsSync(FORGE_DECKS_DIR)) {
 
 wss.on("connection", (ws) => {
   console.log("[WSS] Client connected.");
-  ws.send(JSON.stringify({ type: "CONNECTION_ESTABLISHED", status: "FINAL_STRACE_DIAGNOSTIC_READY" }));
+  ws.send(JSON.stringify({ type: "CONNECTION_ESTABLISHED", status: "DIAGNOSTIC_READY" }));
   ws.on("message", (message) => {
     try {
         const data = JSON.parse(message.toString());
         if (data.type === "START_MATCH") {
-          console.log("[DIAG] Received START_MATCH signal. Running final strace diagnostic.");
-          startStraceDiagnostic(ws, data.payload);
+          console.log("[DIAG] Received START_MATCH signal. Running final diagnostic.");
+          startDiagnostic(ws, data.payload);
         }
     } catch (e) { console.error("[WSS] Failed to parse incoming WebSocket message:", e); }
   });
 });
 
-// --- The Final `strace` Diagnostic ---
-function startStraceDiagnostic(ws: WebSocket, payload: any) {
+// --- The Final Diagnostic ---
+function startDiagnostic(ws: WebSocket, payload: any) {
   const { deck1, deck2 } = payload;
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
 
-  // Write decks to the correct location as determined by your Java code fix.
+  // Write decks to the correct location
   try {
     fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
@@ -45,25 +45,24 @@ function startStraceDiagnostic(ws: WebSocket, payload: any) {
     return;
   }
 
-  const commandToRun = "strace";
+  // *** THE FIX IS HERE: We are now running the java command directly without strace ***
+  const commandToRun = "java";
   
   const commandArgs = [
-      "-f", // Follow child processes
-      "java",
-      "-verbose:class", // Re-enabled verbose flag for detailed class loading output
+      "-verbose:class", // Keep verbose flag for detailed class loading output
       "-Xmx1024m",
       `-Djava.awt.headless=true`,
       `-Dforge.home=${APP_DIR}`,
       "-jar",
       jarPath,
       "sim",
-      "-d", deck1.filename, // Filename only
-      "-d", deck2.filename, // Filename only
+      "-d", deck1.filename,
+      "-d", deck2.filename,
       "-a", deck1.aiProfile, deck2.aiProfile,
       "-n", "1",
   ];
 
-  console.log(`[DIAGNOSTIC] Spawning process with final diagnostic command: ${commandToRun} ${commandArgs.join(' ')}`);
+  console.log(`[DIAGNOSTIC] Spawning process with command: ${commandToRun} ${commandArgs.join(' ')}`);
 
   const diagnosticProcess = spawn(commandToRun, commandArgs, { cwd: APP_DIR });
 
@@ -72,22 +71,22 @@ function startStraceDiagnostic(ws: WebSocket, payload: any) {
     broadcast({ type: "ERROR", message: 'Failed to start simulation process. Check server logs.' });
   });
 
-  // Both strace and the verbose java output will go to STDERR
+  // The verbose java output will go to STDERR
   diagnosticProcess.stderr.on('data', (data) => {
-      console.log(`[STDERR_OUTPUT]: ${data.toString()}`);
+      console.log(`[JVM_STDERR]: ${data.toString()}`);
   });
 
   // stdout will contain the actual forge simulation log if it succeeds
   diagnosticProcess.stdout.on('data', (data) => {
-      console.log(`[STDOUT_OUTPUT]: ${data.toString()}`);
+      console.log(`[FORGE_STDOUT]: ${data.toString()}`);
   });
 
   diagnosticProcess.on("close", (code) => {
     if (code === 0) {
-      console.log(`[DIAGNOSTIC_SUCCESS] Final strace process exited with code ${code}`);
+      console.log(`[DIAGNOSTIC_SUCCESS] Process exited with code ${code}`);
       broadcast({ type: "DIAGNOSTIC_COMPLETE", success: true, message: `Diagnostic finished successfully.` });
     } else {
-      console.error(`[DIAGNOSTIC_FAILURE] Final strace process exited with non-zero code ${code}`);
+      console.error(`[DIAGNOSTIC_FAILURE] Process exited with non-zero code ${code}`);
       broadcast({ type: "DIAGNOSTIC_COMPLETE", success: false, message: `Diagnostic failed with exit code ${code}. Check server logs.` });
     }
   });
