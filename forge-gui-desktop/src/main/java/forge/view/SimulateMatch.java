@@ -34,7 +34,7 @@ import forge.util.storage.IStorage;
 public class SimulateMatch {
 
     public static void simulate(String[] args) {
-        FModel.initialize(null, null);
+        FModel.initialize(null, null, true);
         System.out.println("Simulation mode");
         if (args.length < 4) {
             argumentHelp();
