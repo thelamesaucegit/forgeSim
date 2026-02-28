@@ -1,7 +1,12 @@
 package forge.view;
 
 import java.io.File;
-import java.util.*;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.EnumSet;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -30,6 +35,7 @@ import forge.model.FModel;
 import forge.player.GamePlayerUtil;
 import forge.util.Lang;
 import forge.util.TextUtil;
+import forge.util.TimeLimitedCodeBlock;
 import forge.util.WordUtil;
 import forge.util.storage.IStorage;
 
@@ -261,6 +267,7 @@ public class SimulateMatch {
 
         if (numPlayers == 0) {
             System.out.println("No decks/Players found. Please try again.");
+            return; // Return here to prevent NullPointerException
         }
 
         if ("bracket".equalsIgnoreCase(tournament)) {
@@ -347,6 +354,7 @@ public class SimulateMatch {
             File f = new File(baseDir + deckname);
             if (!f.exists()) {
                 System.out.println("No deck found in " + baseDir);
+                return null; // Return null if file does not exist
             }
             return DeckSerializer.fromFile(f);
         }
