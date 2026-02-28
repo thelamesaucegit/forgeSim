@@ -1,25 +1,9 @@
-/*
- * Forge: Play Magic: the Gathering.
- * Copyright (C) 2011  Forge Team
- *
- * This program is free software: you can redistribute it and/or modify
- * it under the terms of the GNU General Public License as published by
- * the Free Software Foundation, either version 3 of the License, or
- * (at your option) any later version.
- *
- * This program is distributed in the hope that it will be useful,
- * but WITHOUT ANY WARRANTY; without even the implied warranty of
- * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
- * GNU General Public License for more details.
- *
- * You should have received a copy of the GNU General Public License
- * along with this program.  If not, see <http://www.gnu.org/licenses/>.
- */
 package forge.model;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
 import com.google.common.collect.Maps;
+
 import forge.*;
 import forge.CardStorageReader.ProgressObserver;
 import forge.ai.AiProfileUtil;
@@ -65,15 +49,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.function.Function;
 
-/**
- * The default Model implementation for Forge.
- *
- * This used to be an interface, but it seems unlikely that we will ever use a
- * different model.
- *
- * In case we need to convert it into an interface in the future, all fields of
- * this class must be either private or public static final.
- */
 public final class FModel {
     private FModel() { } //don't allow creating instance
 
@@ -86,12 +61,14 @@ public final class FModel {
             getPreferences().getPrefBoolean(FPref.UI_LOAD_NONLEGAL_CARDS),
             getPreferences().getPrefBoolean(FPref.ALLOW_CUSTOM_CARDS_IN_DECKS_CONFORMANCE),
             getPreferences().getPrefBoolean(FPref.UI_SMART_CARD_ART)));
+
     private static final Supplier<QuestPreferences> questPreferences = Suppliers.memoize(QuestPreferences::new);
     private static final Supplier<ConquestPreferences> conquestPreferences = Suppliers.memoize(() -> {
        final ConquestPreferences cp = new ConquestPreferences();
        ConquestUtil.updateRarityFilterOdds(cp);
        return cp;
     });
+
     private static ForgePreferences preferences;
     private static final Supplier<ForgeNetPreferences> netPreferences = Suppliers.memoize(ForgeNetPreferences::new);
     private static final Supplier<Map<GameType, AchievementCollection>> achievements = Suppliers.memoize(() -> {
@@ -106,18 +83,14 @@ public final class FModel {
         return a;
     });
 
-    // Someone should take care of 2 gauntlets here
     private static TournamentData tournamentData;
     private static GauntletData gauntletData;
     private static final Supplier<GauntletMini> gauntletMini = Suppliers.memoize(GauntletMini::new);
-
     private static final Supplier<QuestController> quest = Suppliers.memoize(QuestController::new);
     private static final Supplier<ConquestController> conquest = Suppliers.memoize(ConquestController::new);
     private static final Supplier<CardCollections> decks = Suppliers.memoize(CardCollections::new);
-
     private static final Supplier<IStorage<CardBlock>> blocks = Suppliers.memoize(() -> {
         final IStorage<CardBlock> cb = new StorageBase<>("Block definitions", new CardBlock.Reader(ForgeConstants.BLOCK_DATA_DIR + "blocks.txt", getMagicDb().getEditions()));
-        // SetblockLands
         for (final CardBlock b : cb) {
             try {
                 getMagicDb().getBlockLands().add(b.getLandSet().getCode());
@@ -127,6 +100,7 @@ public final class FModel {
         }
         return cb;
     });
+
     private static final Supplier<IStorage<CardBlock>> fantasyBlocks = Suppliers.memoize(() -> new StorageBase<>("Custom blocks", new CardBlock.Reader(ForgeConstants.BLOCK_DATA_DIR + "fantasyblocks.txt", getMagicDb().getEditions())));
     private static final Supplier<IStorage<ThemedChaosDraft>> themedChaosDrafts = Suppliers.memoize(() -> new StorageBase<>("Themed Chaos Drafts", new ThemedChaosDraft.Reader(ForgeConstants.BLOCK_DATA_DIR + "chaosdraftthemes.txt")));
     private static final Supplier<IStorage<ConquestPlane>> planes = Suppliers.memoize(() -> new StorageBase<>("Conquest planes", new ConquestPlane.Reader(ForgeConstants.CONQUEST_PLANES_DIR + "planes.txt")));
@@ -138,6 +112,7 @@ public final class FModel {
         final IStorage<QuestWorld> w = new StorageBase<>("Quest worlds", null, standardWorlds);
         return w;
     });
+
     private static final Supplier<GameFormat.Collection> formats = Suppliers.memoize(() -> new GameFormat.Collection(new GameFormat.Reader( new File(ForgeConstants.FORMATS_DATA_DIR), new File(ForgeConstants.USER_FORMATS_DIR), preferences.getPrefBoolean(FPref.LOAD_ARCHIVED_FORMATS))));
     private static final Supplier<ItemPool<PaperCard>> uniqueCardsNoAlt = Suppliers.memoize(() -> ItemPool.createFrom(getMagicDb().getCommonCards().getUniqueCardsNoAlt(), PaperCard.class));
     private static final Supplier<ItemPool<PaperCard>> allCardsNoAlt = Suppliers.memoize(() -> ItemPool.createFrom(getMagicDb().getCommonCards().getAllCardsNoAlt(), PaperCard.class));
@@ -156,6 +131,7 @@ public final class FModel {
     public static void initialize(final IProgressBar progressBar, Function<ForgePreferences, Void> adjustPrefs) {
         initialize(progressBar, adjustPrefs, false);
     }
+
     public static void initialize(final IProgressBar progressBar, Function<ForgePreferences, Void> adjustPrefs, boolean isSimTest) {
         ImageKeys.initializeDirs(
             ForgeConstants.CACHE_CARD_PICS_DIR, ForgeConstants.CACHE_CARD_PICS_SUBDIR,
@@ -167,7 +143,11 @@ public final class FModel {
         // Instantiate preferences: quest and regular
         // Preferences are initialized first so that the splash screen can be translated.
         try {
-            preferences = GuiBase.getForgePrefs();
+            if (isSimTest) {
+                preferences = new ForgePreferences();
+            } else {
+                preferences = GuiBase.getForgePrefs();
+            }
             if (adjustPrefs != null) {
                 adjustPrefs.apply(preferences);
             }
@@ -180,46 +160,43 @@ public final class FModel {
         Lang.createInstance(getPreferences().getPref(FPref.UI_LANGUAGE));
         Localizer.getInstance().initialize(getPreferences().getPref(FPref.UI_LANGUAGE), ForgeConstants.LANG_DIR);
 
-      final ProgressObserver progressBarBridge;
-if (isSimTest) {
-    progressBarBridge = ProgressObserver.emptyObserver;
-} else {
-    progressBarBridge = (progressBar == null) ?
-        ProgressObserver.emptyObserver : new ProgressObserver() {
-            @Override
-            public void setOperationName(final String name, final boolean usePercents) {
-                FThreads.invokeInEdtLater(() -> {
-                    progressBar.setDescription(name);
-                    progressBar.setPercentMode(usePercents);
-                });
-            }
-
-            @Override
-            public void report(final int current, final int total) {
-                FThreads.invokeInEdtLater(() -> {
-                    progressBar.setMaximum(total);
-                    progressBar.setValue(current);
-                });
-            }
-        };
+        // --- THIS IS THE SECOND, CRITICAL FIX ---
+        // We use the 'isSimTest' flag to select a non-GUI observer, which prevents the call to FThreads.
+        final ProgressObserver progressBarBridge;
+        if (isSimTest || progressBar == null) {
+            progressBarBridge = ProgressObserver.emptyObserver;
+        } else {
+            progressBarBridge = new ProgressObserver() {
+                @Override
+                public void setOperationName(final String name, final boolean usePercents) {
+                    FThreads.invokeInEdtLater(() -> {
+                        progressBar.setDescription(name);
+                        progressBar.setPercentMode(usePercents);
+                    });
+                }
+                @Override
+                public void report(final int current, final int total) {
+                    FThreads.invokeInEdtLater(() -> {
+                        progressBar.setMaximum(total);
+                        progressBar.setValue(current);
+                    });
+                }
+            };
+        }
 
         // if (new AutoUpdater(true).attemptToUpdate()) {}
         // Load types before loading cards
         loadDynamicGamedata();
-
         // Load card database
         // Lazy loading currently disabled
-        reader = new CardStorageReader(ForgeConstants.CARD_DATA_DIR, progressBarBridge,
-                false);
-        tokenReader = new CardStorageReader(ForgeConstants.TOKEN_DATA_DIR, progressBarBridge,
-                false);
+        reader = new CardStorageReader(ForgeConstants.CARD_DATA_DIR, progressBarBridge, false);
+        tokenReader = new CardStorageReader(ForgeConstants.TOKEN_DATA_DIR, progressBarBridge, false);
 
         try {
            customReader  = new CardStorageReader(ForgeConstants.USER_CUSTOM_CARDS_DIR, progressBarBridge, false);
         } catch (Exception e) {
             customReader = null;
         }
-
         try {
             customTokenReader  = new CardStorageReader(ForgeConstants.USER_CUSTOM_TOKENS_DIR, progressBarBridge, false);
         } catch (Exception e) {
@@ -243,15 +220,14 @@ if (isSimTest) {
 
         ForgePreferences.DEV_MODE = preferences.getPrefBoolean(FPref.DEV_MODE_ENABLED);
         ForgePreferences.UPLOAD_DRAFT = ForgePreferences.NET_CONN;
-
         getMagicDb().setStandardPredicate(getFormats().getStandard().getFilterRules());
         getMagicDb().setPioneerPredicate(getFormats().getPioneer().getFilterRules());
         getMagicDb().setModernPredicate(getFormats().getModern().getFilterRules());
         getMagicDb().setCommanderPredicate(getFormats().get("Commander").getFilterRules());
         getMagicDb().setOathbreakerPredicate(getFormats().get("Oathbreaker").getFilterRules());
         getMagicDb().setBrawlPredicate(getFormats().get("Brawl").getFilterRules());
-
         getMagicDb().setFilteredHandsEnabled(preferences.getPrefBoolean(FPref.FILTERED_HANDS));
+
         try {
             getMagicDb().setMulliganRule(MulliganDefs.MulliganRule.valueOf(preferences.getPref(FPref.MULLIGAN_RULE)));
         } catch(Exception e) {
@@ -259,11 +235,9 @@ if (isSimTest) {
         }
 
         Spell.setPerformanceMode(preferences.getPrefBoolean(FPref.PERFORMANCE_MODE));
-
         if (progressBar != null) {
             FThreads.invokeInEdtLater(() -> progressBar.setDescription(Localizer.getInstance().getMessage("splash.loading.decks")));
         }
-
         CardPreferences.load();
         DeckPreferences.load();
         ItemManagerConfig.load();
@@ -271,7 +245,7 @@ if (isSimTest) {
         // Preload AI profiles
         AiProfileUtil.loadAllProfiles(ForgeConstants.AI_PROFILE_DIR);
         AiProfileUtil.setAiSideboardingMode(AiProfileUtil.AISideboardingMode.normalizedValueOf(getPreferences().getPref(FPref.MATCH_AI_SIDEBOARDING_MODE)));
-
+        
         // Generate Deck Gen matrix
         if(getPreferences().getPrefBoolean(FPref.DECKGEN_CARDBASED)) {
             boolean commanderDeckGenMatrixLoaded=CardRelationMatrixGenerator.initialize();
@@ -283,7 +257,6 @@ if (isSimTest) {
     }
 
     private static boolean deckGenMatrixLoaded = false;
-
     public static boolean isdeckGenMatrixLoaded(){
         return deckGenMatrixLoaded;
     }
@@ -350,9 +323,6 @@ if (isSimTest) {
 
     private static boolean keywordsLoaded = false;
 
-    /**
-     * Load dynamic gamedata.
-     */
     public static void loadDynamicGamedata() {
         if (!CardType.Constant.LOADED.isSet()) {
             
@@ -361,13 +331,10 @@ if (isSimTest) {
             for (String sectionName: contents.keySet()) {
                 CardType.Helper.parseTypes(sectionName, contents.get(sectionName));
             }
-
             CardType.Constant.LOADED.set();
         }
-
         if (!keywordsLoaded) {
             final List<String> nskwListFile = FileUtil.readFile(ForgeConstants.KEYWORD_LIST_FILE);
-
             if (nskwListFile.size() > 1) {
                 for (final String s : nskwListFile) {
                     if (s.length() > 1) {
@@ -386,12 +353,12 @@ if (isSimTest) {
     public static ForgePreferences getPreferences() {
         return preferences;
     }
+
     public static ForgeNetPreferences getNetPreferences() {
         return netPreferences.get();
     }
 
     public static AchievementCollection getAchievements(GameType gameType) {
-        // Translate gameType to appropriate type if needed
         return switch (gameType) {
             case Constructed, Draft, Sealed, Quest, PlanarConquest, Puzzle, Adventure -> achievements.get().get(gameType);
             case AdventureEvent -> achievements.get().get(GameType.Adventure);
@@ -449,6 +416,5 @@ if (isSimTest) {
     }
 
     public static TournamentData getTournamentData() { return tournamentData; }
-
     public static void setTournamentData(TournamentData tournamentData0) { tournamentData = tournamentData0;  }
 }
