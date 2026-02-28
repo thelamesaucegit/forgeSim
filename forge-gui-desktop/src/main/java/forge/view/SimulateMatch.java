@@ -8,6 +8,11 @@ import java.util.EnumSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.Callable;
+import java.util.concurrent.ExecutionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
+import java.util.concurrent.Future;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
@@ -36,9 +41,13 @@ import forge.model.FModel;
 import forge.player.GamePlayerUtil;
 import forge.util.Lang;
 import forge.util.TextUtil;
-import forge.util.TimeLimitedCodeBlock;
 import forge.util.WordUtil;
 import forge.util.storage.IStorage;
+
+// NOTE: The TimeLimitedCodeBlock class you provided is in the forge.view package,
+// but the original code had it in forge.util. I have removed the import for
+// forge.util.TimeLimitedCodeBlock to use the one in the current package.
+// If it is in forge.util, you will need to add that import back.
 
 public class SimulateMatch {
 
@@ -52,7 +61,7 @@ public class SimulateMatch {
             return;
         }
 
-        final Map<String, List<String>> params = new HashMap<>();
+        final Map<String, List<String>> params = new HashMap<String, List<String>>();
         List<String> options = null;
         for (int i = 1; i < args.length; i++) {
             final String a = args[i];
@@ -62,7 +71,7 @@ public class SimulateMatch {
                     argumentHelp();
                     return;
                 }
-                options = new ArrayList<>();
+                options = new ArrayList<String>();
                 params.put(a.substring(1), options);
             } else if (options != null) {
                 options.add(a);
@@ -101,7 +110,7 @@ public class SimulateMatch {
             return;
         }
 
-        List<RegisteredPlayer> pp = new ArrayList<>();
+        List<RegisteredPlayer> pp = new ArrayList<RegisteredPlayer>();
         StringBuilder sb = new StringBuilder();
         int i = 1;
         if (params.containsKey("d")) {
@@ -180,9 +189,8 @@ public class SimulateMatch {
         final StopWatch sw = new StopWatch();
         sw.start();
         final Game g1 = mc.createGame();
-        // will run match in the same thread
         try {
-            // --- LAMBDA FIX 1: Replaced lambda with anonymous Runnable class ---
+            // --- LAMBDA FIX: Replaced lambda with its Java 7 equivalent anonymous class ---
             TimeLimitedCodeBlock.runWithTimeout(new Runnable() {
                 @Override
                 public void run() {
@@ -190,10 +198,13 @@ public class SimulateMatch {
                     sw.stop();
                 }
             }, mc.getRules().getSimTimeout(), TimeUnit.SECONDS);
-        } catch (TimeoutException e) {
-            System.out.println("Stopping slow match as draw");
-        } catch (Exception | StackOverflowError e) {
-            e.printStackTrace();
+        } catch (Exception e) {
+            // Handle TimeoutException as well as other exceptions
+            if (e instanceof TimeoutException) {
+                System.out.println("Stopping slow match as draw");
+            } else {
+                e.printStackTrace();
+            }
         } finally {
             if (sw.isStarted()) {
                 sw.stop();
@@ -225,7 +236,7 @@ public class SimulateMatch {
         AbstractTournament tourney = null;
         int matchPlayers = params.containsKey("p") ? Integer.parseInt(params.get("p").get(0)) : 2;
         DeckGroup deckGroup = new DeckGroup("SimulatedTournament");
-        List<TournamentPlayer> players = new ArrayList<>();
+        List<TournamentPlayer> players = new ArrayList<TournamentPlayer>();
         int numPlayers = 0;
         if (params.containsKey("d")) {
             for (String deck : params.get("d")) {
@@ -249,7 +260,7 @@ public class SimulateMatch {
             if (!folder.isDirectory()) {
                 System.out.println("Directory not found - " + foldName);
             } else {
-                // --- LAMBDA FIX 2: Replaced lambda with anonymous FilenameFilter class ---
+                // --- LAMBDA FIX: Replaced lambda with its Java 7 equivalent anonymous class ---
                 File[] deckFiles = folder.listFiles(new FilenameFilter() {
                     @Override
                     public boolean accept(File dir, String name) {
