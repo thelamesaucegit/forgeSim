@@ -33,6 +33,9 @@ RUN apt-get update && apt-get install -y openjdk-17-jre-headless unzip strace &&
 COPY --from=nodebuilder /app/package*.json ./
 RUN npm install --omit=dev
 
+ENV NEXT_PUBLIC_SUPABASE_URL = https://zaaqzthoquixvvelzxlr.supabase.co/ 
+ENV NEXT_PUBLIC_SUPABASE_ANON_KEY = sb_publishable_ydyIMuD_hWNB_At6xXqyZw_L4dL-ia5
+
 COPY --from=nodebuilder /app/dist ./dist
 
 # --- THE FIX IS HERE: The typo "jabuilder" has been corrected to "javabuilder" ---
