@@ -4,7 +4,7 @@ FROM maven:3.8-openjdk-17 AS javabuilder
 
 WORKDIR /usr/src/app
 
-# Clone your repository. This build is now always quiet.
+# Clone your repository
 RUN git clone https://github.com/thelamesaucegit/forgeSim.git .
 
 # A simple, standard Maven build.
@@ -37,7 +37,9 @@ ENV NEXT_PUBLIC_SUPABASE_URL = https://zaaqzthoquixvvelzxlr.supabase.co/
 ENV NEXT_PUBLIC_SUPABASE_ANON_KEY = sb_publishable_ydyIMuD_hWNB_At6xXqyZw_L4dL-ia5
 
 COPY --from=nodebuilder /app/dist ./dist
-COPY --from=jabuilder /usr/src/app/forge-gui-desktop/target/forge-gui-desktop-2.0.11-SNAPSHOT-jar-with-dependencies.jar ./forgeSim.jar
+
+# --- THE FIX IS HERE: The typo "jabuilder" has been corrected to "javabuilder" ---
+COPY --from=javabuilder /usr/src/app/forge-gui-desktop/target/forge-gui-desktop-2.0.11-SNAPSHOT-jar-with-dependencies.jar ./forgeSim.jar
 COPY --from=javabuilder /usr/src/app/forge-gui/res ./res
 
 EXPOSE 8080
