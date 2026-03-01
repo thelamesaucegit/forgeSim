@@ -2,7 +2,6 @@ import { WebSocketServer, WebSocket } from "ws";
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-// *** THE FIX IS HERE: Import the parser and game state interfaces ***
 import { parseLogLine, getInitialState, GameState } from "./parser.js";
 
 const APP_DIR = process.cwd();
@@ -24,7 +23,7 @@ wss.on("connection", (ws) => {
         const data = JSON.parse(message.toString());
         if (data.type === "START_MATCH") {
           console.log("[WSS] Received START_MATCH signal. Starting match.");
-          startMatch(ws, data.payload); // Changed from startDiagnostic to startMatch
+          startMatch(ws, data.payload);
         }
     } catch (e) { console.error("[WSS] Failed to parse incoming WebSocket message:", e); }
   });
@@ -34,8 +33,6 @@ wss.on("connection", (ws) => {
 function startMatch(ws: WebSocket, payload: any) {
   const { deck1, deck2 } = payload;
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
-  
-  // *** THE FIX IS HERE: Initialize a state object for the match ***
   let currentGameState: GameState = getInitialState();
 
   try {
@@ -47,9 +44,15 @@ function startMatch(ws: WebSocket, payload: any) {
     ws.send(JSON.stringify({ type: "ERROR", message: "Failed to write deck files to disk." }));
     return;
   }
+  
+  // *** THE FIX IS HERE: Dynamic command generation based on environment variable ***
+  const diagLevel = process.env.DIAG_LEVEL;
+  console.log(`[DIAG] Diagnostic level set to: ${diagLevel || '1 (Production)'}`);
 
-  const commandToRun = "java";
-  const commandArgs = [
+  let commandToRun: string;
+  let commandArgs: string[];
+
+  const baseJavaArgs = [
       "-Xmx1024m",
       `-Djava.awt.headless=true`,
       `-Dsentry.enabled=false`,
@@ -62,6 +65,21 @@ function startMatch(ws: WebSocket, payload: any) {
       "-n", "1",
   ];
 
+  switch (diagLevel) {
+    case '3': // Highest verbosity: strace + verbose:class
+      commandToRun = "strace";
+      commandArgs = ["-f", "java", "-verbose:class", ...baseJavaArgs];
+      break;
+    case '2': // Medium verbosity: verbose:class
+      commandToRun = "java";
+      commandArgs = ["-verbose:class", ...baseJavaArgs];
+      break;
+    default:  // Level 1 or unset: Production mode
+      commandToRun = "java";
+      commandArgs = baseJavaArgs;
+      break;
+  }
+
   console.log(`[MATCH] Spawning process with command: ${commandToRun} ${commandArgs.join(' ')}`);
 
   const forgeProcess = spawn(commandToRun, commandArgs, { cwd: APP_DIR });
@@ -71,25 +89,20 @@ function startMatch(ws: WebSocket, payload: any) {
     broadcast({ type: "ERROR", message: 'Failed to start simulation process.' });
   });
 
-  // stdout contains the forge simulation log we need to parse
   forgeProcess.stdout.on('data', (data) => {
       const logChunk = data.toString();
-      console.log(`[FORGE_LOG]: ${logChunk}`); // Keep logging the raw output for debugging
-
-      // *** THE FIX IS HERE: Process each line with the parser ***
+      console.log(`[FORGE_LOG]: ${logChunk}`);
       const lines = logChunk.split('\\n');
       for (const line of lines) {
         if (line.trim() === '') continue;
         const newState = parseLogLine(line, currentGameState);
         if (newState) {
           currentGameState = newState;
-          // Broadcast the updated game state to all clients
           broadcast({ type: 'GAME_STATE_UPDATE', payload: currentGameState });
         }
       }
   });
   
-  // Also listen to stderr for any Java errors
   forgeProcess.stderr.on('data', (data) => {
       console.error(`[JVM_STDERR]: ${data.toString()}`);
   });
