@@ -45,13 +45,11 @@ function startMatch(ws: WebSocket, payload: any) {
     return;
   }
   
-  // *** THE FIX IS HERE: Dynamic command generation based on environment variable ***
   const diagLevel = process.env.DIAG_LEVEL;
   console.log(`[DIAG] Diagnostic level set to: ${diagLevel || '1 (Production)'}`);
 
   let commandToRun: string;
   let commandArgs: string[];
-
   const baseJavaArgs = [
       "-Xmx1024m",
       `-Djava.awt.headless=true`,
@@ -66,18 +64,9 @@ function startMatch(ws: WebSocket, payload: any) {
   ];
 
   switch (diagLevel) {
-    case '3': // Highest verbosity: strace + verbose:class
-      commandToRun = "strace";
-      commandArgs = ["-f", "java", "-verbose:class", ...baseJavaArgs];
-      break;
-    case '2': // Medium verbosity: verbose:class
-      commandToRun = "java";
-      commandArgs = ["-verbose:class", ...baseJavaArgs];
-      break;
-    default:  // Level 1 or unset: Production mode
-      commandToRun = "java";
-      commandArgs = baseJavaArgs;
-      break;
+    case '3': commandToRun = "strace"; commandArgs = ["-f", "java", "-verbose:class", ...baseJavaArgs]; break;
+    case '2': commandToRun = "java"; commandArgs = ["-verbose:class", ...baseJavaArgs]; break;
+    default:  commandToRun = "java"; commandArgs = baseJavaArgs; break;
   }
 
   console.log(`[MATCH] Spawning process with command: ${commandToRun} ${commandArgs.join(' ')}`);
@@ -91,14 +80,21 @@ function startMatch(ws: WebSocket, payload: any) {
 
   forgeProcess.stdout.on('data', (data) => {
       const logChunk = data.toString();
-      console.log(`[FORGE_LOG]: ${logChunk}`);
       const lines = logChunk.split('\\n');
       for (const line of lines) {
         if (line.trim() === '') continue;
+        
+        // *** DIAGNOSTIC LOGGING ADDED HERE ***
+        console.log(`[PARSE_ATTEMPT] Parsing line: "${line}"`);
         const newState = parseLogLine(line, currentGameState);
+        
         if (newState) {
+          console.log(`[PARSE_SUCCESS] State updated. Broadcasting to client.`);
           currentGameState = newState;
           broadcast({ type: 'GAME_STATE_UPDATE', payload: currentGameState });
+        } else {
+          // This will tell us which lines are failing to parse.
+          console.log(`[PARSE_FAILURE] Line did not produce a state update.`);
         }
       }
   });
@@ -108,6 +104,9 @@ function startMatch(ws: WebSocket, payload: any) {
   });
 
   forgeProcess.on("close", (code) => {
+    // *** DIAGNOSTIC LOGGING ADDED HERE ***
+    console.log(`[FINAL_STATE] Match ended. Final game state was:`, JSON.stringify(currentGameState, null, 2));
+
     if (code === 0) {
       console.log(`[MATCH_SUCCESS] Process exited with code ${code}`);
       broadcast({ type: "MATCH_COMPLETE", success: true, message: `Match finished successfully.` });
