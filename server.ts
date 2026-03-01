@@ -42,13 +42,12 @@ server.listen(8080, () => {
 server.on('request', (req: any, res: any) => {
     if (req.method === 'POST' && req.url === '/start-match') {
         let body = '';
-        req.on('data', chunk => { body += chunk.toString(); });
+        // FIX: Added explicit 'any' type to the 'chunk' parameter
+        req.on('data', (chunk: any) => { body += chunk.toString(); });
         req.on('end', () => {
             try {
                 const payload = JSON.parse(body);
                 console.log("[HTTP] Received START_MATCH signal via POST request.");
-                // Start the match simulation but don't wait for it to finish.
-                // This makes the endpoint responsive.
                 startMatch(payload);
                 res.writeHead(202, { 'Content-Type': 'application/json' });
                 res.end(JSON.stringify({ message: "Match simulation accepted and started." }));
@@ -68,12 +67,11 @@ async function startMatch(payload: any) {
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
   let currentGameState: GameState = getInitialState();
 
-  // 1. Create a new match entry in the dedicated `sim_matches` table.
   const player1Info = `${deck1.filename} (AI: ${deck1.aiProfile})`;
   const player2Info = `${deck2.filename} (AI: ${deck2.aiProfile})`;
 
   const { data: matchData, error: matchError } = await supabase
-    .from('sim_matches') // CORRECTED TABLE NAME
+    .from('sim_matches')
     .insert({ player1_info: player1Info, player2_info: player2Info })
     .select('id')
     .single();
@@ -85,7 +83,6 @@ async function startMatch(payload: any) {
   const matchId = matchData.id;
   console.log(`[DB] New simulation match created with ID: ${matchId}`);
 
-  // (Deck writing and command setup remains the same)
   try {
     fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
@@ -104,7 +101,7 @@ async function startMatch(payload: any) {
   forgeProcess.stdout.on('data', async (data) => {
     stdoutBuffer += data.toString();
     let newlineIndex;
-    while ((newlineIndex = stdoutBuffer.indexOf('\\n')) >= 0) {
+    while ((newlineIndex = stdoutBuffer.indexOf('\n')) >= 0) {
       const line = stdoutBuffer.substring(0, newlineIndex).trim();
       stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
       
@@ -112,9 +109,8 @@ async function startMatch(payload: any) {
         const newState = parseLogLine(line, currentGameState);
         if (newState) {
           currentGameState = newState;
-          // 2. Insert the new game state into the dedicated `sim_match_states` table.
           const { error: stateError } = await supabase
-            .from('sim_match_states') // CORRECTED TABLE NAME
+            .from('sim_match_states')
             .insert({ match_id: matchId, state_data: currentGameState });
 
           if (stateError) {
@@ -134,10 +130,9 @@ async function startMatch(payload: any) {
   forgeProcess.on("close", async (code) => {
     console.log(`[MATCH_COMPLETE] Match ${matchId} finished with code ${code}.`);
 
-    // 3. Update the `sim_matches` entry with the winner.
     if (code === 0 && currentGameState.winner) {
       const { error: updateError } = await supabase
-        .from('sim_matches') // CORRECTED TABLE NAME
+        .from('sim_matches')
         .update({ winner: currentGameState.winner })
         .eq('id', matchId);
 
