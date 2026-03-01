@@ -13,14 +13,14 @@ export interface PlayerState {
   name: string;
   life: number;
   battlefield: Card[];
-  handSize: number; // To track mulligans
+  handSize: number;
 }
 
 export interface GameState {
   turn: number;
   activePlayer: string;
   players: Record<string, PlayerState>;
-  winner?: string; // To declare a winner
+  winner?: string;
 }
 
 // --- Initial State ---
@@ -46,7 +46,7 @@ const regexGameEnd = /Game Result: .* has won!/;
 
 // --- Main Parser Function ---
 export function parseLogLine(line: string, currentState: GameState): GameState | null {
-  const state = JSON.parse(JSON.stringify(currentState));
+  const state = JSON.parse(JSON.stringify(currentState)) as GameState;
   let match: RegExpMatchArray | null;
 
   // Initial player setup
@@ -77,7 +77,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     state.turn = parseInt(match.groups.turnNum, 10);
     state.activePlayer = match.groups.player;
     for (const playerName in state.players) {
-        // FIX: Added explicit type annotation for 'card'
         state.players[playerName].battlefield.forEach((card: Card) => {
             card.isAttacking = false;
             card.isBlocked = false;
@@ -110,8 +109,8 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   if (match?.groups) {
     const { blockerId, blockerName, attackerId } = match.groups;
     const attacker = findCardInBattlefield(state, attackerId);
-    // FIX: Added explicit type annotations for 'p' and 'c'
-    const blockerOwner = Object.values(state.players).find((p: PlayerState) => p.battlefield.some((c: Card) => c.id === blockerId));
+    // FIX: Explicitly cast the result of Object.values to PlayerState[]
+    const blockerOwner = (Object.values(state.players) as PlayerState[]).find((p) => p.battlefield.some((c) => c.id === blockerId));
     if (blockerOwner) {
         const blocker = addCardToBattlefield(state, blockerOwner.name, blockerId, blockerName);
         if (blocker && attacker) {
@@ -141,8 +140,8 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   // Game End
   match = line.match(regexGameEnd);
   if (match) {
-    // FIX: Added explicit type annotation for 'p'
-    const winner = Object.values(state.players).find((p: PlayerState) => p.life > 0);
+    // FIX: Explicitly cast the result of Object.values to PlayerState[]
+    const winner = (Object.values(state.players) as PlayerState[]).find((p) => p.life > 0);
     if (winner) {
         state.winner = winner.name;
     }
