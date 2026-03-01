@@ -1,3 +1,5 @@
+// src/parser.ts
+
 // --- Interfaces ---
 export interface Card {
   id: string;
@@ -11,14 +13,14 @@ export interface PlayerState {
   name: string;
   life: number;
   battlefield: Card[];
-  handSize: number; // New: to track mulligans
+  handSize: number; // To track mulligans
 }
 
 export interface GameState {
   turn: number;
   activePlayer: string;
   players: Record<string, PlayerState>;
-  winner?: string; // New: to declare a winner
+  winner?: string; // To declare a winner
 }
 
 // --- Initial State ---
@@ -34,9 +36,8 @@ export function getInitialState(): GameState {
 const regexPlayerSetup = /(?<player>Ai\(\d+\)-[\w.-]+(?: \(AI: [\w.]+\))?)/g;
 const regexTurn = /Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/;
 const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)/;
-const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i; // No longer requires card ID
+const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i;
 const regexDamage = /Damage: .* deals (?<damage>\d+) .*damage to (?<targetPlayer>.+)\./;
-const regexLifeGain = /(?<player>.+) gains (?<amount>\d+) life\./;
 const regexZoneChange = /Zone Change: (?<cardName>.+) \((?<cardId>\d+)\) was put into graveyard from battlefield/;
 const regexAttack = /Combat: (?<player>.+) assigned (?<cardName>.+) \((?<cardId>\d+)\) to attack .*/;
 const regexBlock = /Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/;
@@ -59,7 +60,7 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
       return state;
     }
   }
-  
+
   // Mulligan
   match = line.match(regexMulligan);
   if (match?.groups) {
@@ -76,7 +77,8 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     state.turn = parseInt(match.groups.turnNum, 10);
     state.activePlayer = match.groups.player;
     for (const playerName in state.players) {
-        state.players[playerName].battlefield.forEach(card => {
+        // FIX: Added explicit type annotation for 'card'
+        state.players[playerName].battlefield.forEach((card: Card) => {
             card.isAttacking = false;
             card.isBlocked = false;
         });
@@ -92,15 +94,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     return state;
   }
 
-  // Spells being cast - this is now handled by the attack/block workaround
-  match = line.match(regexCast);
-  if (match?.groups) {
-      // We can't add the card yet as we don't have an ID, but we could
-      // potentially add a "casting" state in the future if needed.
-      // For now, we do nothing and wait for an attack/block event.
-      return null;
-  }
-  
   // Creature attacks (Workaround: add card if not present)
   match = line.match(regexAttack);
   if (match?.groups) {
@@ -111,14 +104,14 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     }
     return state;
   }
-  
+
   // Creature blocks (Workaround: add card if not present)
   match = line.match(regexBlock);
   if (match?.groups) {
     const { blockerId, blockerName, attackerId } = match.groups;
     const attacker = findCardInBattlefield(state, attackerId);
-    // Find the owner of the blocker
-    const blockerOwner = Object.values(state.players).find(p => p.battlefield.some(c => c.id === blockerId));
+    // FIX: Added explicit type annotations for 'p' and 'c'
+    const blockerOwner = Object.values(state.players).find((p: PlayerState) => p.battlefield.some((c: Card) => c.id === blockerId));
     if (blockerOwner) {
         const blocker = addCardToBattlefield(state, blockerOwner.name, blockerId, blockerName);
         if (blocker && attacker) {
@@ -137,18 +130,19 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     }
     return state;
   }
-  
+
   // Cards being removed from battlefield
   match = line.match(regexZoneChange);
   if (match?.groups) {
     removeCardFromBattlefield(state, match.groups.cardId);
     return state;
   }
-  
+
   // Game End
   match = line.match(regexGameEnd);
-  if (match?.groups) {
-    const winner = Object.values(state.players).find(p => p.life > 0);
+  if (match) {
+    // FIX: Added explicit type annotation for 'p'
+    const winner = Object.values(state.players).find((p: PlayerState) => p.life > 0);
     if (winner) {
         state.winner = winner.name;
     }
@@ -169,7 +163,7 @@ function removeCardFromBattlefield(state: GameState, cardId: string) {
 
 function findCardInBattlefield(state: GameState, cardId: string): Card | undefined {
     for (const playerName in state.players) {
-        const card = state.players[playerName].battlefield.find(c => c.id === cardId);
+        const card = state.players[playerName].battlefield.find((c: Card) => c.id === cardId);
         if (card) return card;
     }
     return undefined;
