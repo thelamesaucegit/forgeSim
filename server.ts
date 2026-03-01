@@ -7,7 +7,6 @@ import { parseLogLine, getInitialState, GameState } from "./parser.js";
 const APP_DIR = process.cwd();
 const FORGE_DECKS_DIR = path.join(APP_DIR, "decks", "constructed");
 
-// --- WebSocket Server Setup ---
 const wss = new WebSocketServer({ port: 8080 });
 console.log(`[INIT] Sidecar WebSocket server started on port 8080.`);
 wss.on('listening', () => console.log('[HEALTH_CHECK] Server is listening on port 8080.'));
@@ -29,7 +28,6 @@ wss.on("connection", (ws) => {
   });
 });
 
-// --- Main Match Logic ---
 function startMatch(ws: WebSocket, payload: any) {
   const { deck1, deck2 } = payload;
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
@@ -38,30 +36,15 @@ function startMatch(ws: WebSocket, payload: any) {
   try {
     fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
-    console.log(`[MATCH] Deck files written to: ${FORGE_DECKS_DIR}`);
   } catch(e: any) {
     console.error(`[MATCH] FATAL: Failed during deck file write.`, e.message);
-    ws.send(JSON.stringify({ type: "ERROR", message: "Failed to write deck files to disk." }));
     return;
   }
   
-  const diagLevel = process.env.DIAG_LEVEL;
-  console.log(`[DIAG] Diagnostic level set to: ${diagLevel || '1 (Production)'}`);
-
+  const diagLevel = process.env.DIAG_LEVEL || '1';
   let commandToRun: string;
   let commandArgs: string[];
-  const baseJavaArgs = [
-      "-Xmx1024m",
-      `-Djava.awt.headless=true`,
-      `-Dsentry.enabled=false`,
-      `-Dforge.home=${APP_DIR}`,
-      "-jar",
-      jarPath,
-      "sim",
-      "-d", deck1.filename, deck2.filename,
-      "-a", deck1.aiProfile, deck2.aiProfile,
-      "-n", "1",
-  ];
+  const baseJavaArgs = ["-Xmx1024m", `-Djava.awt.headless=true`, `-Dsentry.enabled=false`, `-Dforge.home=${APP_DIR}`, "-jar", jarPath, "sim", "-d", deck1.filename, deck2.filename, "-a", deck1.aiProfile, deck2.aiProfile, "-n", "1"];
 
   switch (diagLevel) {
     case '3': commandToRun = "strace"; commandArgs = ["-f", "java", "-verbose:class", ...baseJavaArgs]; break;
@@ -70,31 +53,28 @@ function startMatch(ws: WebSocket, payload: any) {
   }
 
   console.log(`[MATCH] Spawning process with command: ${commandToRun} ${commandArgs.join(' ')}`);
-
   const forgeProcess = spawn(commandToRun, commandArgs, { cwd: APP_DIR });
 
-  forgeProcess.on('error', (err) => {
-    console.error('[FATAL_SPAWN_ERROR] Failed to start the simulation process.', err);
-    broadcast({ type: "ERROR", message: 'Failed to start simulation process.' });
-  });
-
+  // Buffer for incomplete lines from stdout
+  let stdoutBuffer = "";
   forgeProcess.stdout.on('data', (data) => {
-      const logChunk = data.toString();
-      const lines = logChunk.split('\\n');
-      for (const line of lines) {
-        if (line.trim() === '') continue;
+      stdoutBuffer += data.toString();
+      let newlineIndex;
+      // Process all complete lines in the buffer
+      while ((newlineIndex = stdoutBuffer.indexOf('\\n')) >= 0) {
+        const line = stdoutBuffer.substring(0, newlineIndex).trim();
+        stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
         
-        // *** DIAGNOSTIC LOGGING ADDED HERE ***
-        console.log(`[PARSE_ATTEMPT] Parsing line: "${line}"`);
-        const newState = parseLogLine(line, currentGameState);
-        
-        if (newState) {
-          console.log(`[PARSE_SUCCESS] State updated. Broadcasting to client.`);
-          currentGameState = newState;
-          broadcast({ type: 'GAME_STATE_UPDATE', payload: currentGameState });
-        } else {
-          // This will tell us which lines are failing to parse.
-          console.log(`[PARSE_FAILURE] Line did not produce a state update.`);
+        if (line) {
+          console.log(`[PARSE_ATTEMPT] Parsing line: "${line}"`);
+          const newState = parseLogLine(line, currentGameState);
+          if (newState) {
+            console.log(`[PARSE_SUCCESS] State updated. Broadcasting.`);
+            currentGameState = newState;
+            broadcast({ type: 'GAME_STATE_UPDATE', payload: currentGameState });
+          } else {
+            console.log(`[PARSE_FAILURE] Line did not produce a state update.`);
+          }
         }
       }
   });
@@ -104,16 +84,10 @@ function startMatch(ws: WebSocket, payload: any) {
   });
 
   forgeProcess.on("close", (code) => {
-    // *** DIAGNOSTIC LOGGING ADDED HERE ***
     console.log(`[FINAL_STATE] Match ended. Final game state was:`, JSON.stringify(currentGameState, null, 2));
-
-    if (code === 0) {
-      console.log(`[MATCH_SUCCESS] Process exited with code ${code}`);
-      broadcast({ type: "MATCH_COMPLETE", success: true, message: `Match finished successfully.` });
-    } else {
-      console.error(`[MATCH_FAILURE] Process exited with non-zero code ${code}`);
-      broadcast({ type: "MATCH_COMPLETE", success: false, message: `Match failed with exit code ${code}.` });
-    }
+    const result = { type: "MATCH_COMPLETE", success: code === 0, message: `Match finished with code ${code}.` };
+    broadcast(result);
+    console.log(`[MATCH_COMPLETE] Broadcasted final result.`);
   });
 }
 
