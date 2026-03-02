@@ -3,6 +3,7 @@
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
+import * as http from "http"; // Corrected: Use ESM import syntax
 import { createClient } from "@supabase/supabase-js";
 import { parseLogLine, getInitialState, GameState } from "./parser.js";
 
@@ -23,8 +24,7 @@ console.log("[INIT] Supabase client initialized.");
 
 // This server's primary purpose is now to run simulations and write to the DB.
 // The HTTP server exists mainly for health checks and to trigger jobs.
-const http = require('http');
-const server = http.createServer((req: any, res: any) => {
+const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
   if (req.url === '/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
@@ -39,7 +39,7 @@ server.listen(8080, () => {
 });
 
 // A simple HTTP endpoint to trigger a match simulation.
-server.on('request', (req: any, res: any) => {
+server.on('request', (req: http.IncomingMessage, res: http.ServerResponse) => {
     if (req.method === 'POST' && req.url === '/start-match') {
         let body = '';
         // FIX: Added explicit 'any' type to the 'chunk' parameter
@@ -59,7 +59,6 @@ server.on('request', (req: any, res: any) => {
         });
     }
 });
-
 
 // --- Main Match Logic ---
 async function startMatch(payload: any) {
@@ -93,7 +92,7 @@ async function startMatch(payload: any) {
 
   const commandToRun = "java";
   const commandArgs = ["-Xmx1024m", `-Djava.awt.headless=true`, `-Dforge.home=${APP_DIR}`, "-jar", jarPath, "sim", "-d", deck1.filename, deck2.filename, "-a", deck1.aiProfile, deck2.aiProfile, "-n", "1"];
-
+  
   console.log(`[MATCH] Spawning process for match ID ${matchId}`);
   const forgeProcess = spawn(commandToRun, commandArgs, { cwd: APP_DIR });
 
@@ -101,7 +100,8 @@ async function startMatch(payload: any) {
   forgeProcess.stdout.on('data', async (data) => {
     stdoutBuffer += data.toString();
     let newlineIndex;
-    while ((newlineIndex = stdoutBuffer.indexOf('\n')) >= 0) {
+
+    while ((newlineIndex = stdoutBuffer.indexOf('\\n')) >= 0) {
       const line = stdoutBuffer.substring(0, newlineIndex).trim();
       stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
       
@@ -129,13 +129,12 @@ async function startMatch(payload: any) {
 
   forgeProcess.on("close", async (code) => {
     console.log(`[MATCH_COMPLETE] Match ${matchId} finished with code ${code}.`);
-
     if (code === 0 && currentGameState.winner) {
       const { error: updateError } = await supabase
         .from('sim_matches')
         .update({ winner: currentGameState.winner })
         .eq('id', matchId);
-
+      
       if (updateError) {
         console.error("[DB_ERROR] Failed to update match winner:", updateError);
       } else {
