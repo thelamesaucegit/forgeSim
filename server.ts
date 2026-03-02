@@ -3,7 +3,7 @@
 import { spawn } from "child_process";
 import * as fs from "fs";
 import * as path from "path";
-import * as http from "http"; // Corrected: Use ESM import syntax
+import * as http from "http";
 import { createClient } from "@supabase/supabase-js";
 import { parseLogLine, getInitialState, GameState } from "./parser.js";
 
@@ -22,45 +22,50 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 console.log("[INIT] Supabase client initialized.");
 
-// This server's primary purpose is now to run simulations and write to the DB.
-// The HTTP server exists mainly for health checks and to trigger jobs.
+// --- Unified HTTP Server Logic ---
 const server = http.createServer((req: http.IncomingMessage, res: http.ServerResponse) => {
-  if (req.url === '/health') {
+  // Route: Health Check
+  if (req.url === '/health' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
-  } else {
-    res.writeHead(404);
-    res.end();
+    return;
   }
+
+  // Route: Start Match Simulation
+  if (req.url === '/start-match' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => {
+      body += chunk.toString();
+    });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        console.log("[HTTP] Received START_MATCH signal via POST request.");
+        // Asynchronously start the match process. Do not await it here.
+        startMatch(payload);
+
+        // Immediately send a 202 Accepted response to the client.
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: "Match simulation accepted and has started." }));
+      } catch (e: any) {
+        console.error("[HTTP] Failed to parse request body:", e);
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: "Invalid JSON in request body.", details: e.message }));
+      }
+    });
+    return;
+  }
+
+  // Fallback Route: Not Found for all other requests
+  res.writeHead(404, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: "Not Found" }));
 });
 
 server.listen(8080, () => {
   console.log('[HEALTH_CHECK] HTTP server listening on port 8080 for health checks.');
 });
 
-// A simple HTTP endpoint to trigger a match simulation.
-server.on('request', (req: http.IncomingMessage, res: http.ServerResponse) => {
-    if (req.method === 'POST' && req.url === '/start-match') {
-        let body = '';
-        // FIX: Added explicit 'any' type to the 'chunk' parameter
-        req.on('data', (chunk: any) => { body += chunk.toString(); });
-        req.on('end', () => {
-            try {
-                const payload = JSON.parse(body);
-                console.log("[HTTP] Received START_MATCH signal via POST request.");
-                startMatch(payload);
-                res.writeHead(202, { 'Content-Type': 'application/json' });
-                res.end(JSON.stringify({ message: "Match simulation accepted and started." }));
-            } catch (e) {
-                console.error("[HTTP] Failed to parse request body:", e);
-                res.writeHead(400);
-                res.end();
-            }
-        });
-    }
-});
-
-// --- Main Match Logic ---
+// --- Main Match Logic (No changes below this line) ---
 async function startMatch(payload: any) {
   const { deck1, deck2 } = payload;
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
@@ -83,10 +88,12 @@ async function startMatch(payload: any) {
   console.log(`[DB] New simulation match created with ID: ${matchId}`);
 
   try {
+    // This is synchronous file writing. For a busy server, consider making this async.
     fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     fs.writeFileSync(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
   } catch(e: any) {
     console.error(`[FATAL] Failed during deck file write.`, e.message);
+    // In a real scenario, you might want to update the DB to mark this match as failed.
     return;
   }
 
