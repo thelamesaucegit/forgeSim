@@ -42,5 +42,7 @@ COPY --from=nodebuilder /app/dist ./dist
 COPY --from=javabuilder /usr/src/app/forge-gui-desktop/target/forge-gui-desktop-2.0.11-SNAPSHOT-jar-with-dependencies.jar ./forgeSim.jar
 COPY --from=javabuilder /usr/src/app/forge-gui/res ./res
 
+RUN mkdir -p /app/decks/constructed
+
 EXPOSE 8080
 CMD ["node", "dist/server.js"]
