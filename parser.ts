@@ -21,7 +21,7 @@ export interface GameState {
   activePlayer: string;
   players: Record<string, PlayerState>;
   winner?: string;
-  phase?: string; // Add phase to be consistent with usage
+  phase?: string;
 }
 
 // --- Initial State ---
@@ -43,7 +43,7 @@ const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i;
 const regexDamage = /Damage: .* deals (?<damage>\d+) .*damage to (?<targetPlayer>.+)\./;
 const regexZoneChange = /Zone Change: (?<cardName>.+) \((?<cardId>\d+)\) was put into graveyard from battlefield/;
 const regexAttack = /Combat: (?<player>.+) assigned (?<cardName>.+) \((?<cardId>\d+)\) to attack .*/;
-const regexBlock = /Combat: Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/;
+const regexBlock = /Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/; // Corrected typo
 const regexMulligan = /Mulligan: (?<player>.+) has kept a hand of (?<handSize>\d+) cards/;
 const regexGameEnd = /Game Result:.*?\. (.*) has won!/; // Corrected for exact log output
 const regexPhase = /^Phase: (.*)/;
@@ -53,7 +53,7 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   const state = JSON.parse(JSON.stringify(currentState)) as GameState;
   let match: RegExpMatchArray | null;
 
-  // Game End (check this first as it's the definitive event)
+  // Game End must be checked first to be definitive
   match = line.match(regexGameEnd);
   if (match && match[1]) {
     state.winner = match[1].trim();
@@ -61,8 +61,7 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     return state;
   }
   
-  // Initial player setup
-  // Note: Object.keys(state.players).length === 0 is important here to only run this once.
+  // Player setup should only run once at the beginning
   if (Object.keys(state.players).length === 0 && line.includes("vs")) {
     const matches = [...line.matchAll(regexPlayerSetup)];
     if (matches.length >= 2) {
@@ -74,14 +73,12 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     }
   }
   
-  // Phase changes
   match = line.match(regexPhase);
   if (match && match[1]) {
     state.phase = match[1].trim();
     return state;
   }
 
-  // Mulligan
   match = line.match(regexMulligan);
   if (match?.groups) {
     const { player, handSize } = match.groups;
@@ -91,11 +88,10 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     return state;
   }
 
-  // Turn changes
   match = line.match(regexTurn);
   if (match?.groups) {
     state.turn = parseInt(match.groups.turnNum, 10);
-    state.activePlayer = match.groups.player;
+    state.activePlayer = match.groups.player.trim();
     for (const playerName in state.players) {
         state.players[playerName].battlefield.forEach((card: Card) => {
             card.isAttacking = false;
@@ -105,7 +101,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     return state;
   }
 
-  // Lands entering battlefield
   match = line.match(regexLand);
   if (match?.groups) {
     const { player, cardName, cardId } = match.groups;
@@ -113,7 +108,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     return state;
   }
 
-  // Creature attacks
   match = line.match(regexAttack);
   if (match?.groups) {
     const { player, cardId, cardName } = match.groups;
@@ -124,7 +118,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     return state;
   }
 
-  // Creature blocks
   match = line.match(regexBlock);
   if (match?.groups) {
     const { blockerId, blockerName, attackerId } = match.groups;
@@ -139,17 +132,17 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     return state;
   }
 
-  // Damage to players
   match = line.match(regexDamage);
   if (match?.groups) {
     const { damage, targetPlayer } = match.groups;
-    if (state.players[targetPlayer]) {
-      state.players[targetPlayer].life -= parseInt(damage, 10);
+    // Player names in logs can have trailing spaces
+    const trimmedTarget = targetPlayer.trim();
+    if (state.players[trimmedTarget]) {
+      state.players[trimmedTarget].life -= parseInt(damage, 10);
     }
     return state;
   }
 
-  // Cards being removed from battlefield
   match = line.match(regexZoneChange);
   if (match?.groups) {
     removeCardFromBattlefield(state, match.groups.cardId);
@@ -178,20 +171,16 @@ function findCardInBattlefield(state: GameState, cardId: string): Card | undefin
 
 function addCardToBattlefield(state: GameState, playerName: string, cardId: string, cardName: string): Card | undefined {
     const trimmedPlayerName = playerName.trim();
-    if (!state.players[trimmedPlayerName]) {
-        const actualPlayerKey = Object.keys(state.players).find(key => key.includes(trimmedPlayerName));
-        if (!actualPlayerKey) {
-            return undefined;
-        }
-        playerName = actualPlayerKey;
-    } else {
-        playerName = trimmedPlayerName;
-    }
+    let actualPlayerKey = Object.keys(state.players).find(key => key.trim() === trimmedPlayerName);
 
+    if (!actualPlayerKey) {
+        return undefined; // Player not found
+    }
+    
     let card = findCardInBattlefield(state, cardId);
     if (!card) {
         card = { id: cardId, name: cardName };
-        state.players[playerName].battlefield.push(card);
+        state.players[actualPlayerKey].battlefield.push(card);
     }
     return card;
 }
