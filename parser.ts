@@ -1,4 +1,4 @@
-// src/parser.ts
+// src/forgesim/parser.ts
 
 // --- Interfaces ---
 export interface Card {
@@ -21,6 +21,7 @@ export interface GameState {
   activePlayer: string;
   players: Record<string, PlayerState>;
   winner?: string;
+  phase?: string; // Add phase to be consistent with usage
 }
 
 // --- Initial State ---
@@ -29,10 +30,12 @@ export function getInitialState(): GameState {
     turn: 0,
     activePlayer: "",
     players: {},
+    phase: "Setup",
   };
 }
 
 // --- Regex Definitions ---
+// --- FIX: Corrected all regex patterns to use single backslashes for escaping ---
 const regexPlayerSetup = /(?<player>Ai\(\d+\)-[\w\s.-]+(?: \(AI: [\w\s.-]+\))?)/g;
 const regexTurn = /Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/;
 const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)/;
@@ -42,15 +45,22 @@ const regexZoneChange = /Zone Change: (?<cardName>.+) \((?<cardId>\d+)\) was put
 const regexAttack = /Combat: (?<player>.+) assigned (?<cardName>.+) \((?<cardId>\d+)\) to attack .*/;
 const regexBlock = /Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/;
 const regexMulligan = /Mulligan: (?<player>.+) has kept a hand of (?<handSize>\d+) cards/;
-
-// --- THE FIX IS HERE: Use a capturing group to get the winner's name directly ---
 const regexGameEnd = /Game Result:.*?\. (.*) has won!/;
+const regexPhase = /^Phase: (.*)/;
 
 // --- Main Parser Function ---
 export function parseLogLine(line: string, currentState: GameState): GameState | null {
   const state = JSON.parse(JSON.stringify(currentState)) as GameState;
   let match: RegExpMatchArray | null;
 
+  // Game End (check this first as it's the definitive event)
+  match = line.match(regexGameEnd);
+  if (match && match[1]) {
+    state.winner = match[1].trim();
+    console.log(`[PARSER_SUCCESS] Winner captured via regex: ${state.winner}`);
+    return state;
+  }
+  
   // Initial player setup
   if (Object.keys(state.players).length === 0 && line.includes("vs")) {
     const matches = [...line.matchAll(regexPlayerSetup)];
@@ -62,13 +72,11 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
       return state;
     }
   }
-
-  // Game End (check this first as it's the most important event)
-  match = line.match(regexGameEnd);
+  
+  // Phase changes
+  match = line.match(regexPhase);
   if (match && match[1]) {
-    // --- THE FIX IS HERE: Assign winner from the captured group ---
-    state.winner = match[1].trim();
-    console.log(`[PARSER_SUCCESS] Winner captured via regex: ${state.winner}`);
+    state.phase = match[1].trim();
     return state;
   }
 
@@ -168,7 +176,19 @@ function findCardInBattlefield(state: GameState, cardId: string): Card | undefin
 }
 
 function addCardToBattlefield(state: GameState, playerName: string, cardId: string, cardName: string): Card | undefined {
-    if (!state.players[playerName]) return undefined;
+    // This check is important because player names from logs might have trailing spaces
+    const trimmedPlayerName = playerName.trim();
+    if (!state.players[trimmedPlayerName]) {
+        // Attempt to find a player key that includes the trimmed name, which can happen with complex names
+        const actualPlayerKey = Object.keys(state.players).find(key => key.includes(trimmedPlayerName));
+        if (!actualPlayerKey) {
+            return undefined; // Truly no player found
+        }
+        playerName = actualPlayerKey;
+    } else {
+        playerName = trimmedPlayerName;
+    }
+
     let card = findCardInBattlefield(state, cardId);
     if (!card) {
         card = { id: cardId, name: cardName };
