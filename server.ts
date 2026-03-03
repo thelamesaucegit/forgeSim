@@ -14,7 +14,6 @@ interface DeckInfo {
   aiProfile: string;
 }
 
-// --- THE FIX IS HERE: Define a strong type for the payload ---
 interface StartMatchPayload {
   deck1: DeckInfo;
   deck2: DeckInfo;
@@ -51,11 +50,13 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
         const payload = JSON.parse(body);
         console.log("[PAYLOAD_INSPECT] Received payload:", JSON.stringify(payload, null, 2));
         
-        // This is a fire-and-forget operation.
+        // Respond immediately to the orchestrator
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: "Match simulation job received." }));
+        
+        // Start the long-running simulation in the background
         startMatch(payload);
 
-        res.writeHead(202, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ message: "Match simulation job accepted." }));
       } catch (e: any) {
         console.error("[HTTP_ERROR] Failed during /start-match request processing:", e);
         if (!res.headersSent) {
@@ -78,18 +79,17 @@ server.listen(8080, () => {
 });
 
 // --- Main Match Logic ---
-// --- THE FIX IS HERE: Use the strong type instead of 'any' ---
 async function startMatch(payload: StartMatchPayload) {
   const { deck1, deck2, matchId } = payload;
 
   if (!matchId) {
-    console.error("[FATAL_LOGIC] No matchId provided in payload. Aborting.");
+    console.error("[FATAL_LOGIC] No matchId provided in payload. Aborting simulation.");
     return;
   }
 
   try {
-    const deck1Content = deck1.content.replace(/\\n/g, '\n');
-    const deck2Content = deck2.content.replace(/\\n/g, '\n');
+    const deck1Content = payload.deck1.content.replace(/\\n/g, '\n');
+    const deck2Content = payload.deck2.content.replace(/\\n/g, '\n');
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1Content);
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2Content);
   } catch (e: any) {
