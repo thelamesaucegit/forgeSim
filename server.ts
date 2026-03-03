@@ -1,7 +1,7 @@
 // src/forgesim/server.ts
 
 import { spawn } from "child_process";
-import * as fs from "fs/promises"; // Changed to fs.promises for async operations
+import * as fs from "fs/promises";
 import * as path from "path";
 import * as http from "http";
 import { createClient } from "@supabase/supabase-js";
@@ -35,11 +35,14 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     req.on('end', async () => {
       try {
         const payload = JSON.parse(body);
-        
-        // --- Added Logging for Payload ---
         console.log("[PAYLOAD_INSPECT] Received payload:", JSON.stringify(payload, null, 2));
         
-        await startMatch(payload, res);
+        // Respond immediately and then start the background processing.
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: "Match simulation job received and is starting." }));
+        
+        // Start the match logic in the background. DO NOT await it.
+        startMatch(payload);
 
       } catch (e: any) {
         console.error("[HTTP_ERROR] Failed during /start-match request processing:", e);
@@ -63,51 +66,20 @@ server.listen(8080, () => {
 });
 
 // --- Main Match Logic ---
-async function startMatch(payload: any, res: http.ServerResponse) {
-  const { deck1, deck2 } = payload;
-  let matchId: string; // This will be set after DB insertion
+async function startMatch(payload: any) {
+  // --- FIX #1: Use the matchId from the payload, do NOT create a new one. ---
+  const { deck1, deck2, matchId } = payload;
 
-  try {
-    // --- FIX: Create the match entry before responding to the client ---
-    // This allows us to get matchId to the frontend immediately.
-    const { data: matchData, error: matchError } = await supabase
-      .from('sim_matches')
-      .insert({ 
-          player1_info: `${deck1.filename} (AI: ${deck1.aiProfile})`, 
-          player2_info: `${deck2.filename} (AI: ${deck2.aiProfile})` 
-      })
-      .select('id')
-      .single();
-
-    if (matchError || !matchData) {
-      throw new Error(matchError?.message || "Failed to create DB entry.");
-    }
-    
-    matchId = matchData.id;
-    console.log(`[DB] New simulation match created with ID: ${matchId}`);
-
-    // Immediately respond to the client with the ID so it can start polling.
-    // This happens BEFORE the Java process is spawned or files are written.
-    res.writeHead(202, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ matchId: matchId, message: "Match simulation accepted and processing in background." }));
-
-  } catch (error: any) {
-    console.error("[FATAL_DB] Could not create match entry in DB for new simulation:", error.message);
-    if (!res.headersSent) {
-      res.writeHead(500, { 'Content-Type': 'application/json' });
-      res.end(JSON.stringify({ error: "A database error occurred during match creation." }));
-    }
-    return; // Stop execution if DB fails
+  if (!matchId) {
+    console.error("[FATAL_LOGIC] No matchId provided in the payload. Aborting simulation.");
+    return;
   }
 
-  // --- Background Processing (now truly non-blocking) ---
   try {
-    // --- FIX: Use async file writing to prevent blocking the event loop ---
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
   } catch (e: any) {
     console.error(`[FATAL_FILE] Failed during deck file write for match ${matchId}. Error:`, e.message);
-    // In a real app, you might want to update the 'sim_matches' table to mark this match as 'failed'.
     return; 
   }
 
@@ -133,16 +105,10 @@ async function startMatch(payload: any, res: http.ServerResponse) {
   console.log("[SPAWN_ARGS] Assembled command args for Java process:", commandArgs);
   console.log(`[MATCH] Spawning process for match ID ${matchId}`);
   
-  // --- FIX: Use non-blocking spawn ---
   const forgeProcess = spawn("java", commandArgs, { 
       cwd: APP_DIR,
-      detached: true, // Crucial for long-running background processes
-      stdio: ['ignore', 'pipe', 'pipe'] // Pipe stdout/stderr, ignore stdin
+      stdio: ['ignore', 'pipe', 'pipe']
   });
-
-  // This is important to allow the parent process to exit independently of the child.
-  // We're handling the output via pipes.
-  forgeProcess.unref();
 
   let stdoutBuffer = "";
   const processLine = (line: string) => {
@@ -150,12 +116,11 @@ async function startMatch(payload: any, res: http.ServerResponse) {
       const newState = parseLogLine(line, currentGameState);
       if (newState) {
         currentGameState = newState;
-        // Fire-and-forget the state update to avoid blocking.
         supabase.from('sim_match_states').insert({ match_id: matchId, state_data: currentGameState })
           .then(({ error }) => {
             if (error) console.error(`[DB_STATE_ERROR] Match ${matchId} Turn ${currentGameState.turn}:`, error.message);
           })
-          .catch(err => console.error(`[DB_STATE_FATAL] Uncaught error saving state for Match ${matchId}:`, err));
+          .catch((err: any) => console.error(`[DB_STATE_FATAL] Uncaught error saving state for Match ${matchId}:`, err));
       }
     }
   };
@@ -163,6 +128,7 @@ async function startMatch(payload: any, res: http.ServerResponse) {
   forgeProcess.stdout.on('data', (data) => {
     stdoutBuffer += data.toString();
     let newlineIndex;
+    // --- FIX #2: Use a literal newline character ('\n') to process the stream in real-time. ---
     while ((newlineIndex = stdoutBuffer.indexOf('\n')) >= 0) {
       const line = stdoutBuffer.substring(0, newlineIndex).trim();
       stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
@@ -177,7 +143,6 @@ async function startMatch(payload: any, res: http.ServerResponse) {
   forgeProcess.on("close", async (code) => {
     console.log(`[MATCH_COMPLETE] Match ${matchId} finished with code ${code}.`);
 
-    // Process any remaining data in the buffer before checking the final state.
     if (stdoutBuffer.length > 0) {
       console.log(`[BUFFER_FLUSH] Match ${matchId}: Processing remaining stdout buffer...`);
       stdoutBuffer.split('\n').forEach(line => processLine(line.trim()));
@@ -196,15 +161,12 @@ async function startMatch(payload: any, res: http.ServerResponse) {
       }
     } else if (code !== 0) {
       console.error(`[MATCH_ERROR] Java process for match ${matchId} exited with non-zero code: ${code}`);
-      // Optionally update match status to 'failed' in DB
     } else {
       console.warn(`[MATCH_WARN] Match ${matchId} finished cleanly but no winner was parsed from the logs.`);
-      // Optionally update match status to 'draw' or 'no winner' in DB
     }
   });
 
   forgeProcess.on('error', (err) => {
     console.error(`[SPAWN_ERROR] Failed to start Java process for match ${matchId}:`, err);
-    // Optionally update match status to 'failed' in DB
   });
 }
