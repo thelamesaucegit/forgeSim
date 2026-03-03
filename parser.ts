@@ -35,7 +35,7 @@ export function getInitialState(): GameState {
 }
 
 // --- Regex Definitions ---
-// --- FIX: Corrected all regex patterns to use single backslashes for escaping ---
+// --- FIX: Corrected all regex patterns to use single backslashes for escaping literal special characters ---
 const regexPlayerSetup = /(?<player>Ai\(\d+\)-[\w\s.-]+(?: \(AI: [\w\s.-]+\))?)/g;
 const regexTurn = /Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/;
 const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)/;
@@ -43,9 +43,9 @@ const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i;
 const regexDamage = /Damage: .* deals (?<damage>\d+) .*damage to (?<targetPlayer>.+)\./;
 const regexZoneChange = /Zone Change: (?<cardName>.+) \((?<cardId>\d+)\) was put into graveyard from battlefield/;
 const regexAttack = /Combat: (?<player>.+) assigned (?<cardName>.+) \((?<cardId>\d+)\) to attack .*/;
-const regexBlock = /Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/;
+const regexBlock = /Combat: Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/;
 const regexMulligan = /Mulligan: (?<player>.+) has kept a hand of (?<handSize>\d+) cards/;
-const regexGameEnd = /Game Result:.*?\. (.*) has won!/;
+const regexGameEnd = /Game Result:.*?\. (.*) has won!/; // Corrected for exact log output
 const regexPhase = /^Phase: (.*)/;
 
 // --- Main Parser Function ---
@@ -62,6 +62,7 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   }
   
   // Initial player setup
+  // Note: Object.keys(state.players).length === 0 is important here to only run this once.
   if (Object.keys(state.players).length === 0 && line.includes("vs")) {
     const matches = [...line.matchAll(regexPlayerSetup)];
     if (matches.length >= 2) {
@@ -176,13 +177,11 @@ function findCardInBattlefield(state: GameState, cardId: string): Card | undefin
 }
 
 function addCardToBattlefield(state: GameState, playerName: string, cardId: string, cardName: string): Card | undefined {
-    // This check is important because player names from logs might have trailing spaces
     const trimmedPlayerName = playerName.trim();
     if (!state.players[trimmedPlayerName]) {
-        // Attempt to find a player key that includes the trimmed name, which can happen with complex names
         const actualPlayerKey = Object.keys(state.players).find(key => key.includes(trimmedPlayerName));
         if (!actualPlayerKey) {
-            return undefined; // Truly no player found
+            return undefined;
         }
         playerName = actualPlayerKey;
     } else {
