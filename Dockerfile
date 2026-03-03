@@ -20,6 +20,7 @@ RUN npm install
 COPY tsconfig.json .
 COPY server.ts .
 COPY parser.ts .
+COPY forge.profile.properties .
 RUN npm run build
 
 # ----------------- Stage 3: Assemble the final runtime image -----------------
