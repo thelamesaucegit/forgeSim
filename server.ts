@@ -7,6 +7,20 @@ import * as http from "http";
 import { createClient } from "@supabase/supabase-js";
 import { parseLogLine, getInitialState, GameState } from "./parser.js";
 
+// --- Type Definitions ---
+interface DeckInfo {
+  filename: string;
+  content: string;
+  aiProfile: string;
+}
+
+// --- THE FIX IS HERE: Define a strong type for the payload ---
+interface StartMatchPayload {
+  deck1: DeckInfo;
+  deck2: DeckInfo;
+  matchId: string;
+}
+
 // --- Supabase and App Setup ---
 const APP_DIR = process.cwd();
 const FORGE_DECKS_DIR = path.join(APP_DIR, "decks", "constructed");
@@ -37,13 +51,11 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
         const payload = JSON.parse(body);
         console.log("[PAYLOAD_INSPECT] Received payload:", JSON.stringify(payload, null, 2));
         
-        // Respond immediately and then start the background processing.
-        res.writeHead(202, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ message: "Match simulation job received and is starting." }));
-        
-        // Start the match logic in the background. DO NOT await it.
+        // This is a fire-and-forget operation.
         startMatch(payload);
 
+        res.writeHead(202, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ message: "Match simulation job accepted." }));
       } catch (e: any) {
         console.error("[HTTP_ERROR] Failed during /start-match request processing:", e);
         if (!res.headersSent) {
@@ -66,73 +78,58 @@ server.listen(8080, () => {
 });
 
 // --- Main Match Logic ---
-async function startMatch(payload: any) {
-  // --- FIX #1: Use the matchId from the payload, do NOT create a new one. ---
+// --- THE FIX IS HERE: Use the strong type instead of 'any' ---
+async function startMatch(payload: StartMatchPayload) {
   const { deck1, deck2, matchId } = payload;
 
   if (!matchId) {
-    console.error("[FATAL_LOGIC] No matchId provided in the payload. Aborting simulation.");
+    console.error("[FATAL_LOGIC] No matchId provided in payload. Aborting.");
     return;
   }
 
   try {
-    await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
-    await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
+    const deck1Content = deck1.content.replace(/\\n/g, '\n');
+    const deck2Content = deck2.content.replace(/\\n/g, '\n');
+    await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1Content);
+    await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2Content);
   } catch (e: any) {
     console.error(`[FATAL_FILE] Failed during deck file write for match ${matchId}. Error:`, e.message);
     return; 
   }
 
   let currentGameState: GameState = getInitialState();
+  const allGameStates: GameState[] = [];
+
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
   const commandArgs = [
-    "-Xmx1024m", 
-    `-Djava.awt.headless=true`, 
-    `-Dforge.home=${APP_DIR}`, 
-    "-jar", 
-    jarPath, 
-    "sim", 
-    "-d", 
-    deck1.filename, 
-    deck2.filename, 
-    "-a", 
-    deck1.aiProfile, 
-    deck2.aiProfile, 
-    "-n", 
-    "1"
+    "-Xmx1024m", `-Djava.awt.headless=true`, `-Dforge.home=${APP_DIR}`, 
+    "-jar", jarPath, "sim", "-d", deck1.filename, deck2.filename,
+    "-a", deck1.aiProfile, deck2.aiProfile, "-n", "1"
   ];
 
-  console.log("[SPAWN_ARGS] Assembled command args for Java process:", commandArgs);
   console.log(`[MATCH] Spawning process for match ID ${matchId}`);
-  
-  const forgeProcess = spawn("java", commandArgs, { 
-      cwd: APP_DIR,
-      stdio: ['ignore', 'pipe', 'pipe']
-  });
+  const forgeProcess = spawn("java", commandArgs, { cwd: APP_DIR, stdio: ['ignore', 'pipe', 'pipe'] });
 
-  let stdoutBuffer = "";
   const processLine = (line: string) => {
     if (line) {
       const newState = parseLogLine(line, currentGameState);
       if (newState) {
         currentGameState = newState;
-        supabase.from('sim_match_states').insert({ match_id: matchId, state_data: currentGameState })
-          .then(({ error }) => {
-            if (error) console.error(`[DB_STATE_ERROR] Match ${matchId} Turn ${currentGameState.turn}:`, error.message);
-          })
-          .catch((err: any) => console.error(`[DB_STATE_FATAL] Uncaught error saving state for Match ${matchId}:`, err));
+        allGameStates.push({ ...currentGameState }); 
       }
     }
   };
 
   forgeProcess.stdout.on('data', (data) => {
-    stdoutBuffer += data.toString();
+    let stdoutBuffer = data.toString();
     let newlineIndex;
-    // --- FIX #2: Use a literal newline character ('\n') to process the stream in real-time. ---
     while ((newlineIndex = stdoutBuffer.indexOf('\n')) >= 0) {
       const line = stdoutBuffer.substring(0, newlineIndex).trim();
       stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
       processLine(line);
+    }
+    if (stdoutBuffer.length > 0) {
+        processLine(stdoutBuffer.trim());
     }
   });
 
@@ -142,22 +139,22 @@ async function startMatch(payload: any) {
 
   forgeProcess.on("close", async (code) => {
     console.log(`[MATCH_COMPLETE] Match ${matchId} finished with code ${code}.`);
-
-    if (stdoutBuffer.length > 0) {
-      console.log(`[BUFFER_FLUSH] Match ${matchId}: Processing remaining stdout buffer...`);
-      stdoutBuffer.split('\n').forEach(line => processLine(line.trim()));
-    }
-
+    
     if (code === 0 && currentGameState.winner) {
+      console.log(`[DB] Match ${matchId} winner is ${currentGameState.winner}. Saving full game log...`);
+
       const { error: updateError } = await supabase
         .from('sim_matches')
-        .update({ winner: currentGameState.winner })
+        .update({ 
+          winner: currentGameState.winner,
+          game_states: allGameStates
+        })
         .eq('id', matchId);
       
       if (updateError) {
-        console.error(`[DB_WINNER_ERROR] Failed to update winner for match ${matchId}:`, updateError.message);
+        console.error(`[DB_WINNER_ERROR] Failed to update final match data for ${matchId}:`, updateError.message);
       } else {
-        console.log(`[DB] Match ${matchId} winner updated: ${currentGameState.winner}`);
+        console.log(`[DB] Successfully saved winner and game log for match ${matchId}.`);
       }
     } else if (code !== 0) {
       console.error(`[MATCH_ERROR] Java process for match ${matchId} exited with non-zero code: ${code}`);
