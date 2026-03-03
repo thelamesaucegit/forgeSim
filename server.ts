@@ -152,10 +152,12 @@ async function startMatch(payload: any, res: http.ServerResponse) {
         currentGameState = newState;
         // Fire-and-forget the state update to avoid blocking.
         supabase.from('sim_match_states').insert({ match_id: matchId, state_data: currentGameState })
-          .then(({ error }) => {
-            if (error) console.error(`[DB_STATE_ERROR] Match ${matchId} Turn ${currentGameState.turn}:`, error.message);
-          })
-          .catch(err => console.error(`[DB_STATE_FATAL] Uncaught error saving state for Match ${matchId}:`, err));
+          .then(
+            ({ error }) => {
+              if (error) console.error(`[DB_STATE_ERROR] Match ${matchId} Turn ${currentGameState.turn}:`, error.message);
+            },
+            (err: any) => console.error(`[DB_STATE_FATAL] Uncaught error saving state for Match ${matchId}:`, err)
+          );
       }
     }
   };
