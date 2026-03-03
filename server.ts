@@ -56,8 +56,10 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
         
         startMatch(payload);
 
-      } catch (e: unknown) { // --- FIX: Use 'unknown' instead of 'any' ---
-        console.error("[HTTP_ERROR] Failed during /start-match request processing:", e);
+      } catch (e: unknown) {
+        let message = "An unknown error occurred.";
+        if (e instanceof Error) message = e.message;
+        console.error("[HTTP_ERROR] Failed during /start-match request processing:", message);
         if (!res.headersSent) {
           res.writeHead(500, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: "An internal server error occurred." }));
@@ -87,11 +89,10 @@ async function startMatch(payload: StartMatchPayload) {
   }
 
   try {
-    // --- FIX: Write the content directly without replacement. ---
     // The parsed JSON payload already has correct literal '\n' characters.
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
-  } catch (e: unknown) { // --- FIX: Use 'unknown' instead of 'any' ---
+  } catch (e: unknown) {
     let message = "An unknown error occurred during file write.";
     if (e instanceof Error) message = e.message;
     console.error(`[FATAL_FILE] Failed for match ${matchId}. Error:`, message);
@@ -110,7 +111,6 @@ async function startMatch(payload: StartMatchPayload) {
 
   console.log(`[MATCH] Spawning process for match ID ${matchId}`);
   
-  // --- FIX: Use simplified spawn options without 'detached' or 'unref()' ---
   const forgeProcess = spawn("java", commandArgs, { 
     cwd: APP_DIR, 
     stdio: ['ignore', 'pipe', 'pipe'] 
@@ -147,8 +147,6 @@ async function startMatch(payload: StartMatchPayload) {
   forgeProcess.on("close", async (code) => {
     console.log(`[MATCH_COMPLETE] Match ${matchId} finished with code ${code}.`);
     
-    // The final state is processed by the 'close' event logic in parseLogLine.
-    // We just need to check the final state object.
     if (code === 0 && currentGameState.winner) {
       console.log(`[DB] Match ${matchId} winner is ${currentGameState.winner}. Saving full game log...`);
 
