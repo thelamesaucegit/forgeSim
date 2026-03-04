@@ -1,6 +1,5 @@
 // src/forgesim/parser.ts
 
-// --- Interfaces ---
 export interface Card {
   id: string;
   name: string;
@@ -24,7 +23,6 @@ export interface GameState {
   phase?: string;
 }
 
-// --- Initial State ---
 export function getInitialState(): GameState {
   return {
     turn: 0,
@@ -35,7 +33,6 @@ export function getInitialState(): GameState {
 }
 
 // --- Regex Definitions ---
-// --- FIX: Corrected all regex patterns to use single backslashes for escaping literal special characters ---
 const regexPlayerSetup = /(?<player>Ai\(\d+\)-[\w\s.-]+(?: \(AI: [\w\s.-]+\))?)/g;
 const regexTurn = /Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/;
 const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)/;
@@ -43,17 +40,17 @@ const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i;
 const regexDamage = /Damage: .* deals (?<damage>\d+) .*damage to (?<targetPlayer>.+)\./;
 const regexZoneChange = /Zone Change: (?<cardName>.+) \((?<cardId>\d+)\) was put into graveyard from battlefield/;
 const regexAttack = /Combat: (?<player>.+) assigned (?<cardName>.+) \((?<cardId>\d+)\) to attack .*/;
-const regexBlock = /Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/; // Corrected typo
+const regexBlock = /Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/;
 const regexMulligan = /Mulligan: (?<player>.+) has kept a hand of (?<handSize>\d+) cards/;
-const regexGameEnd = /Game Result:.*?\. (.*) has won!/; // Corrected for exact log output
+// --- FIX: The regex now correctly uses a capturing group for the winner's name. ---
+const regexGameEnd = /Game Result:.*?\. (.*) has won!/;
 const regexPhase = /^Phase: (.*)/;
 
-// --- Main Parser Function ---
 export function parseLogLine(line: string, currentState: GameState): GameState | null {
   const state = JSON.parse(JSON.stringify(currentState)) as GameState;
   let match: RegExpMatchArray | null;
 
-  // Game End must be checked first to be definitive
+  // --- FIX: Logic now directly uses the captured name from the regex. ---
   match = line.match(regexGameEnd);
   if (match && match[1]) {
     state.winner = match[1].trim();
@@ -61,7 +58,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     return state;
   }
   
-  // Player setup should only run once at the beginning
   if (Object.keys(state.players).length === 0 && line.includes("vs")) {
     const matches = [...line.matchAll(regexPlayerSetup)];
     if (matches.length >= 2) {
@@ -135,7 +131,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   match = line.match(regexDamage);
   if (match?.groups) {
     const { damage, targetPlayer } = match.groups;
-    // Player names in logs can have trailing spaces
     const trimmedTarget = targetPlayer.trim();
     if (state.players[trimmedTarget]) {
       state.players[trimmedTarget].life -= parseInt(damage, 10);
@@ -152,7 +147,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   return null;
 }
 
-// --- Helper Functions ---
 function removeCardFromBattlefield(state: GameState, cardId: string) {
   for (const playerName in state.players) {
     state.players[playerName].battlefield = state.players[playerName].battlefield.filter(
@@ -174,7 +168,7 @@ function addCardToBattlefield(state: GameState, playerName: string, cardId: stri
     let actualPlayerKey = Object.keys(state.players).find(key => key.trim() === trimmedPlayerName);
 
     if (!actualPlayerKey) {
-        return undefined; // Player not found
+        return undefined;
     }
     
     let card = findCardInBattlefield(state, cardId);
