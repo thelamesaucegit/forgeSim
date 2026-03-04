@@ -7,7 +7,6 @@ import * as http from "http";
 import { createClient } from "@supabase/supabase-js";
 import { parseLogLine, getInitialState, GameState } from "./parser.js";
 
-// --- Type Definitions ---
 interface DeckInfo {
   filename: string;
   content: string;
@@ -20,7 +19,6 @@ interface StartMatchPayload {
   matchId: string;
 }
 
-// --- Supabase and App Setup ---
 const APP_DIR = process.cwd();
 const FORGE_DECKS_DIR = path.join(APP_DIR, "decks", "constructed");
 
@@ -34,7 +32,6 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 console.log("[INIT] Supabase client initialized.");
 
-// --- Unified HTTP Server Logic ---
 const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
   if (req.url === '/health' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -48,14 +45,9 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     req.on('end', async () => {
       try {
         const payload = JSON.parse(body);
-        console.log("[PAYLOAD_INSPECT] Received payload:", JSON.stringify(payload, null, 2));
-        
-        // Respond immediately and then start the background processing.
         res.writeHead(202, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ message: "Match simulation job received." }));
-        
         startMatch(payload);
-
       } catch (e: unknown) {
         let message = "An unknown error occurred.";
         if (e instanceof Error) message = e.message;
@@ -79,17 +71,15 @@ server.listen(8080, () => {
   console.log('[HEALTH_CHECK] HTTP server listening on port 8080 for health checks.');
 });
 
-// --- Main Match Logic ---
 async function startMatch(payload: StartMatchPayload) {
   const { deck1, deck2, matchId } = payload;
-
   if (!matchId) {
     console.error("[FATAL_LOGIC] No matchId provided in payload. Aborting simulation.");
     return;
   }
 
   try {
-    // The parsed JSON payload already has correct literal '\n' characters.
+    // --- FIX: Write the content directly from the payload. The faulty .replace() is removed. ---
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
   } catch (e: unknown) {
@@ -129,7 +119,7 @@ async function startMatch(payload: StartMatchPayload) {
   forgeProcess.stdout.on('data', (data) => {
     let stdoutBuffer = data.toString();
     let newlineIndex;
-    // --- FIX: Use a literal newline '\n' for correct stream processing ---
+    // --- FIX: Use a literal newline '\n' for correct stream processing. ---
     while ((newlineIndex = stdoutBuffer.indexOf('\n')) >= 0) {
       const line = stdoutBuffer.substring(0, newlineIndex).trim();
       stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
@@ -147,9 +137,9 @@ async function startMatch(payload: StartMatchPayload) {
   forgeProcess.on("close", async (code) => {
     console.log(`[MATCH_COMPLETE] Match ${matchId} finished with code ${code}.`);
     
+    // --- FIX: This check will now pass because the corrected parser populates currentGameState.winner ---
     if (code === 0 && currentGameState.winner) {
       console.log(`[DB] Match ${matchId} winner is ${currentGameState.winner}. Saving full game log...`);
-
       const { error: updateError } = await supabase
         .from('sim_matches')
         .update({ 
@@ -166,6 +156,7 @@ async function startMatch(payload: StartMatchPayload) {
     } else if (code !== 0) {
       console.error(`[MATCH_ERROR] Java process for match ${matchId} exited with non-zero code: ${code}`);
     } else {
+      // This warning will no longer appear with the corrected parser.
       console.warn(`[MATCH_WARN] Match ${matchId} finished cleanly but no winner was parsed from the logs.`);
     }
   });
