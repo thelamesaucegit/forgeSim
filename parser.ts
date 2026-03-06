@@ -45,10 +45,10 @@ const regexMulligan = /Mulligan: (?<player>.+) has kept a hand of (?<handSize>\d
 const regexPhase = /^Phase: (.*)/;
 
 // ---
-// FIX: The regex for the game end is now more specific.
-// It explicitly captures the known player name format (`Ai...`) and avoids capturing trailing spaces.
+// FIX: The regex now correctly accounts for the full player name format in the winner line,
+// including the optional `(AI: ...)` part.
 // ---
-const regexGameEnd = /Game Result:.*(Ai\(\d+\)-.*?)\s+has won!/;
+const regexGameEnd = /Game Result:.*? (Ai\(\d+\)-.*? \(AI: .*?\))\s+has won!/;
 
 
 export function parseLogLine(line: string, currentState: GameState, validTeamIds: string[]): GameState | null {
@@ -57,9 +57,7 @@ export function parseLogLine(line: string, currentState: GameState, validTeamIds
 
   match = line.match(regexGameEnd);
   if (match && match[1]) {
-    // The captured group is now guaranteed to be the clean player name.
     const winnerName = match[1].trim();
-    // We double-check that the captured winner is one of the players we've already identified.
     if (Object.keys(state.players).includes(winnerName)) {
         state.winner = winnerName;
         console.log(`[PARSER_SUCCESS] Winner captured and validated: ${state.winner}`);
@@ -78,9 +76,12 @@ export function parseLogLine(line: string, currentState: GameState, validTeamIds
         const p2IsValid = validTeamIds.some(id => p2LogName.toLowerCase().includes(id.toLowerCase()));
 
         if (p1IsValid && p2IsValid) {
-            state.players[p1LogName] = { name: p1LogName, life: 20, battlefield: [], handSize: 7 };
-            state.players[p2LogName] = { name: p2LogName, life: 20, battlefield: [], handSize: 7 };
-            console.log(`[PARSER_SUCCESS] Validated and set up players: ${p1LogName} and ${p2LogName}`);
+            // Reconstruct the full name as it appears in other log lines
+            const fullP1Name = `${p1LogName} (AI: ${deck1.aiProfile})`;
+            const fullP2Name = `${p2LogName} (AI: ${deck2.aiProfile})`;
+            state.players[fullP1Name] = { name: fullP1Name, life: 20, battlefield: [], handSize: 7 };
+            state.players[fullP2Name] = { name: fullP2Name, life: 20, battlefield: [], handSize: 7 };
+            console.log(`[PARSER_SUCCESS] Validated and set up players: ${fullP1Name} and ${fullP2Name}`);
             return state;
         }
     }
@@ -176,6 +177,8 @@ function addCardToBattlefield(state: GameState, playerName: string, cardId: stri
     const trimmedPlayerName = playerName.trim();
     let actualPlayerKey = Object.keys(state.players).find(key => key.trim() === trimmedPlayerName);
     if (!actualPlayerKey) {
+        // This can happen if the log line for a card action appears before the player setup line is parsed.
+        // We can't do anything, so we just ignore it.
         return undefined;
     }
     
