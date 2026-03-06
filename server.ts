@@ -32,9 +32,6 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 console.log("[INIT] Supabase client initialized.");
 
-// ---
-// NEW: Helper function to clean the decks directory before a simulation.
-// ---
 async function cleanDecksDirectory(): Promise<void> {
     try {
         const files = await fs.readdir(FORGE_DECKS_DIR);
@@ -45,12 +42,10 @@ async function cleanDecksDirectory(): Promise<void> {
         console.log("[CLEANUP] Successfully removed old .dck files.");
     } catch (error: unknown) {
         if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-            // The directory doesn't exist, which is fine. We can create it.
             console.log("[CLEANUP] Decks directory not found, will be created.");
             await fs.mkdir(FORGE_DECKS_DIR, { recursive: true });
         } else {
             console.error("[CLEANUP_ERROR] Failed to clean decks directory:", error);
-            // We throw here because failing to clean could cause a bad simulation.
             throw error;
         }
     }
@@ -101,11 +96,7 @@ async function startMatch(payload: StartMatchPayload) {
     return;
   }
   try {
-    // ---
-    // NEW: Run the cleanup function before writing new files.
-    // ---
     await cleanDecksDirectory();
-
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
   } catch (e: unknown) {
