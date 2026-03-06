@@ -42,8 +42,13 @@ const regexZoneChange = /Zone Change: (?<cardName>.+) \((?<cardId>\d+)\) was put
 const regexAttack = /Combat: (?<player>.+) assigned (?<cardName>.+) \((?<cardId>\d+)\) to attack .*/;
 const regexBlock = /Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/;
 const regexMulligan = /Mulligan: (?<player>.+) has kept a hand of (?<handSize>\d+) cards/;
-const regexGameEnd = /Game Result:.*?\. (.*) has won!/;
 const regexPhase = /^Phase: (.*)/;
+
+// ---
+// FIX: The regex for the game end is now more specific.
+// It explicitly captures the known player name format (`Ai...`) and avoids capturing trailing spaces.
+// ---
+const regexGameEnd = /Game Result:.*(Ai\(\d+\)-.*?)\s+has won!/;
 
 
 export function parseLogLine(line: string, currentState: GameState, validTeamIds: string[]): GameState | null {
@@ -52,15 +57,16 @@ export function parseLogLine(line: string, currentState: GameState, validTeamIds
 
   match = line.match(regexGameEnd);
   if (match && match[1]) {
-    state.winner = match[1].trim();
-    console.log(`[PARSER_SUCCESS] Winner captured via regex: ${state.winner}`);
-    return state;
+    // The captured group is now guaranteed to be the clean player name.
+    const winnerName = match[1].trim();
+    // We double-check that the captured winner is one of the players we've already identified.
+    if (Object.keys(state.players).includes(winnerName)) {
+        state.winner = winnerName;
+        console.log(`[PARSER_SUCCESS] Winner captured and validated: ${state.winner}`);
+        return state;
+    }
   }
   
-  // ---
-  // FIX: This is the new, database-validated player setup logic.
-  // It finds generic player strings and then validates them against the `validTeamIds` list.
-  // ---
   if (Object.keys(state.players).length === 0 && line.includes("vs")) {
     const potentialPlayers = [...line.matchAll(regexGenericPlayer)].map(m => m[1].trim());
     
