@@ -32,13 +32,32 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 console.log("[INIT] Supabase client initialized.");
 
+async function cleanDecksDirectory(): Promise<void> {
+    try {
+        const files = await fs.readdir(FORGE_DECKS_DIR);
+        const deletePromises = files
+            .filter(file => file.endsWith('.dck'))
+            .map(file => fs.unlink(path.join(FORGE_DECKS_DIR, file)));
+        await Promise.all(deletePromises);
+        console.log("[CLEANUP] Successfully removed old .dck files.");
+    } catch (error: unknown) {
+        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
+            console.log("[CLEANUP] Decks directory not found, will be created.");
+            await fs.mkdir(FORGE_DECKS_DIR, { recursive: true });
+        } else {
+            console.error("[CLEANUP_ERROR] Failed to clean decks directory:", error);
+            throw error;
+        }
+    }
+}
+
+
 const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
   if (req.url === '/health' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ status: 'ok' }));
     return;
   }
-
   if (req.url === '/start-match' && req.method === 'POST') {
     let body = '';
     req.on('data', chunk => { body += chunk.toString(); });
@@ -60,7 +79,6 @@ const server = http.createServer(async (req: http.IncomingMessage, res: http.Ser
     });
     return;
   }
-
   if (!res.headersSent) {
     res.writeHead(404, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ error: "Not Found" }));
@@ -77,13 +95,12 @@ async function startMatch(payload: StartMatchPayload) {
     console.error("[FATAL_LOGIC] No matchId provided in payload. Aborting simulation.");
     return;
   }
-
   try {
-    // --- FIX: Write the content directly from the payload. The faulty .replace() is removed. ---
+    await cleanDecksDirectory();
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
   } catch (e: unknown) {
-    let message = "An unknown error occurred during file write.";
+    let message = "An unknown error occurred during file write/cleanup.";
     if (e instanceof Error) message = e.message;
     console.error(`[FATAL_FILE] Failed for match ${matchId}. Error:`, message);
     return; 
@@ -91,19 +108,17 @@ async function startMatch(payload: StartMatchPayload) {
 
   let currentGameState: GameState = getInitialState();
   const allGameStates: GameState[] = [];
-
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
   const commandArgs = [
-    "-Xmx1024m", `-Djava.awt.headless=true`, `-Dforge.home=${APP_DIR}`, 
+    "-Xmx1024m", `-Djava.awt.headless=true`, `-Dforge.home=${APP_DIR}`,
     "-jar", jarPath, "sim", "-d", deck1.filename, deck2.filename,
     "-a", deck1.aiProfile, deck2.aiProfile, "-n", "1"
   ];
-
   console.log(`[MATCH] Spawning process for match ID ${matchId}`);
   
-  const forgeProcess = spawn("java", commandArgs, { 
-    cwd: APP_DIR, 
-    stdio: ['ignore', 'pipe', 'pipe'] 
+  const forgeProcess = spawn("java", commandArgs, {
+    cwd: APP_DIR,
+    stdio: ['ignore', 'pipe', 'pipe']
   });
 
   const processLine = (line: string) => {
@@ -111,7 +126,7 @@ async function startMatch(payload: StartMatchPayload) {
       const newState = parseLogLine(line, currentGameState);
       if (newState) {
         currentGameState = newState;
-        allGameStates.push({ ...currentGameState }); 
+        allGameStates.push({ ...currentGameState });
       }
     }
   };
@@ -119,14 +134,13 @@ async function startMatch(payload: StartMatchPayload) {
   forgeProcess.stdout.on('data', (data) => {
     let stdoutBuffer = data.toString();
     let newlineIndex;
-    // --- FIX: Use a literal newline '\n' for correct stream processing. ---
     while ((newlineIndex = stdoutBuffer.indexOf('\n')) >= 0) {
       const line = stdoutBuffer.substring(0, newlineIndex).trim();
       stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
       processLine(line);
     }
     if (stdoutBuffer.length > 0) {
-        processLine(stdoutBuffer.trim());
+      processLine(stdoutBuffer.trim());
     }
   });
 
@@ -137,14 +151,15 @@ async function startMatch(payload: StartMatchPayload) {
   forgeProcess.on("close", async (code) => {
     console.log(`[MATCH_COMPLETE] Match ${matchId} finished with code ${code}.`);
     
-    // --- FIX: This check will now pass because the corrected parser populates currentGameState.winner ---
-    if (code === 0 && currentGameState.winner) {
+    const finalPlayerKeys = Object.keys(currentGameState.players);
+    if (code === 0 && currentGameState.winner && finalPlayerKeys.length >= 2) {
       console.log(`[DB] Match ${matchId} winner is ${currentGameState.winner}. Saving full game log...`);
+      
       const { error: updateError } = await supabase
         .from('sim_matches')
-        .update({ 
+        .update({
           winner: currentGameState.winner,
-          game_states: allGameStates
+          game_states: allGameStates,
         })
         .eq('id', matchId);
       
@@ -156,8 +171,7 @@ async function startMatch(payload: StartMatchPayload) {
     } else if (code !== 0) {
       console.error(`[MATCH_ERROR] Java process for match ${matchId} exited with non-zero code: ${code}`);
     } else {
-      // This warning will no longer appear with the corrected parser.
-      console.warn(`[MATCH_WARN] Match ${matchId} finished cleanly but no winner was parsed from the logs.`);
+      console.warn(`[MATCH_WARN] Match ${matchId} finished but key data (winner or players) was not parsed.`);
     }
   });
 

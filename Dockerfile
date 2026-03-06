@@ -39,7 +39,6 @@ ENV NEXT_PUBLIC_SUPABASE_ANON_KEY = sb_publishable_ydyIMuD_hWNB_At6xXqyZw_L4dL-i
 
 COPY --from=nodebuilder /app/dist ./dist
 
-# --- THE FIX IS HERE: The typo "jabuilder" has been corrected to "javabuilder" ---
 COPY --from=javabuilder /usr/src/app/forge-gui-desktop/target/forge-gui-desktop-2.0.11-SNAPSHOT-jar-with-dependencies.jar ./forgeSim.jar
 COPY --from=javabuilder /usr/src/app/forge-gui/res ./res
 
