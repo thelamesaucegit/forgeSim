@@ -95,15 +95,20 @@ async function startMatch(payload: StartMatchPayload) {
     console.error("[FATAL_LOGIC] No matchId provided in payload. Aborting simulation.");
     return;
   }
+  
+  // ---
+  // FIX: Declare `validTeamIds` here, outside the try block, so it's accessible
+  // to the entire `startMatch` function scope.
+  // ---
+  let validTeamIds: string[];
+
   try {
-    // ---
-    // NEW: Fetch all team IDs from the database to use for validation in the parser.
-    // ---
     const { data: teamsData, error: teamsError } = await supabase.from('teams').select('id');
     if (teamsError || !teamsData) {
         throw new Error(teamsError?.message || "Failed to fetch team IDs for parser validation.");
     }
-    const validTeamIds = teamsData.map(t => t.id);
+    // Initialize the variable here.
+    validTeamIds = teamsData.map(t => t.id);
 
     await cleanDecksDirectory();
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
@@ -132,7 +137,7 @@ async function startMatch(payload: StartMatchPayload) {
 
   const processLine = (line: string) => {
     if (line) {
-      // Pass the list of valid team IDs to the parser.
+      // Now `validTeamIds` is accessible here.
       const newState = parseLogLine(line, currentGameState, validTeamIds);
       if (newState) {
         currentGameState = newState;
