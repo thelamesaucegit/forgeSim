@@ -136,6 +136,10 @@ async function startMatch(payload: StartMatchPayload) {
   });
 
   const processLine = (line: string) => {
+     // ---
+    // TEMPORARY DIAGNOSTIC LOG: Add this line to see all output from Forge.
+    // ---
+    console.log(`[FORGE_LOG] ${line}`);
     if (line) {
       // Now `validTeamIds` is accessible here.
       const newState = parseLogLine(line, currentGameState, validTeamIds);
