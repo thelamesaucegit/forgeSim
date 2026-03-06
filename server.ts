@@ -96,13 +96,22 @@ async function startMatch(payload: StartMatchPayload) {
     return;
   }
   try {
+    // ---
+    // NEW: Fetch all team IDs from the database to use for validation in the parser.
+    // ---
+    const { data: teamsData, error: teamsError } = await supabase.from('teams').select('id');
+    if (teamsError || !teamsData) {
+        throw new Error(teamsError?.message || "Failed to fetch team IDs for parser validation.");
+    }
+    const validTeamIds = teamsData.map(t => t.id);
+
     await cleanDecksDirectory();
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
   } catch (e: unknown) {
     let message = "An unknown error occurred during file write/cleanup.";
     if (e instanceof Error) message = e.message;
-    console.error(`[FATAL_FILE] Failed for match ${matchId}. Error:`, message);
+    console.error(`[FATAL_SETUP] Failed for match ${matchId}. Error:`, message);
     return; 
   }
 
@@ -123,7 +132,8 @@ async function startMatch(payload: StartMatchPayload) {
 
   const processLine = (line: string) => {
     if (line) {
-      const newState = parseLogLine(line, currentGameState);
+      // Pass the list of valid team IDs to the parser.
+      const newState = parseLogLine(line, currentGameState, validTeamIds);
       if (newState) {
         currentGameState = newState;
         allGameStates.push({ ...currentGameState });

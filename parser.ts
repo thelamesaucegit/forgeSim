@@ -33,7 +33,7 @@ export function getInitialState(): GameState {
 }
 
 // --- Regex Definitions ---
-const regexPlayerSetup = /(?<player>Ai\(\d+\)-[\w\s.-]+(?: \(AI: [\w\s.-]+\))?)/g;
+const regexGenericPlayer = /(Ai\(\d+\)-.*?)(?:\s+\(AI:|\s+vs\s+|$)/g;
 const regexTurn = /Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/;
 const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)/;
 const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i;
@@ -42,15 +42,14 @@ const regexZoneChange = /Zone Change: (?<cardName>.+) \((?<cardId>\d+)\) was put
 const regexAttack = /Combat: (?<player>.+) assigned (?<cardName>.+) \((?<cardId>\d+)\) to attack .*/;
 const regexBlock = /Combat: .* assigned (?<blockerName>.+) \((?<blockerId>\d+)\) to block (?<attackerName>.+) \((?<attackerId>\d+)\)/;
 const regexMulligan = /Mulligan: (?<player>.+) has kept a hand of (?<handSize>\d+) cards/;
-// --- FIX: The regex now correctly uses a capturing group for the winner's name. ---
 const regexGameEnd = /Game Result:.*?\. (.*) has won!/;
 const regexPhase = /^Phase: (.*)/;
 
-export function parseLogLine(line: string, currentState: GameState): GameState | null {
+
+export function parseLogLine(line: string, currentState: GameState, validTeamIds: string[]): GameState | null {
   const state = JSON.parse(JSON.stringify(currentState)) as GameState;
   let match: RegExpMatchArray | null;
 
-  // --- FIX: Logic now directly uses the captured name from the regex. ---
   match = line.match(regexGameEnd);
   if (match && match[1]) {
     state.winner = match[1].trim();
@@ -58,14 +57,26 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     return state;
   }
   
+  // ---
+  // FIX: This is the new, database-validated player setup logic.
+  // It finds generic player strings and then validates them against the `validTeamIds` list.
+  // ---
   if (Object.keys(state.players).length === 0 && line.includes("vs")) {
-    const matches = [...line.matchAll(regexPlayerSetup)];
-    if (matches.length >= 2) {
-      const p1 = matches[0].groups!.player.trim();
-      const p2 = matches[1].groups!.player.trim();
-      state.players[p1] = { name: p1, life: 20, battlefield: [], handSize: 7 };
-      state.players[p2] = { name: p2, life: 20, battlefield: [], handSize: 7 };
-      return state;
+    const potentialPlayers = [...line.matchAll(regexGenericPlayer)].map(m => m[1].trim());
+    
+    if (potentialPlayers.length >= 2) {
+        const p1LogName = potentialPlayers[0];
+        const p2LogName = potentialPlayers[1];
+
+        const p1IsValid = validTeamIds.some(id => p1LogName.toLowerCase().includes(id.toLowerCase()));
+        const p2IsValid = validTeamIds.some(id => p2LogName.toLowerCase().includes(id.toLowerCase()));
+
+        if (p1IsValid && p2IsValid) {
+            state.players[p1LogName] = { name: p1LogName, life: 20, battlefield: [], handSize: 7 };
+            state.players[p2LogName] = { name: p2LogName, life: 20, battlefield: [], handSize: 7 };
+            console.log(`[PARSER_SUCCESS] Validated and set up players: ${p1LogName} and ${p2LogName}`);
+            return state;
+        }
     }
   }
   
@@ -74,7 +85,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     state.phase = match[1].trim();
     return state;
   }
-
   match = line.match(regexMulligan);
   if (match?.groups) {
     const { player, handSize } = match.groups;
@@ -83,7 +93,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     }
     return state;
   }
-
   match = line.match(regexTurn);
   if (match?.groups) {
     state.turn = parseInt(match.groups.turnNum, 10);
@@ -96,14 +105,12 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     }
     return state;
   }
-
   match = line.match(regexLand);
   if (match?.groups) {
     const { player, cardName, cardId } = match.groups;
     addCardToBattlefield(state, player, cardId, cardName);
     return state;
   }
-
   match = line.match(regexAttack);
   if (match?.groups) {
     const { player, cardId, cardName } = match.groups;
@@ -113,7 +120,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     }
     return state;
   }
-
   match = line.match(regexBlock);
   if (match?.groups) {
     const { blockerId, blockerName, attackerId } = match.groups;
@@ -127,7 +133,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     }
     return state;
   }
-
   match = line.match(regexDamage);
   if (match?.groups) {
     const { damage, targetPlayer } = match.groups;
@@ -137,13 +142,11 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     }
     return state;
   }
-
   match = line.match(regexZoneChange);
   if (match?.groups) {
     removeCardFromBattlefield(state, match.groups.cardId);
     return state;
   }
-
   return null;
 }
 
@@ -166,7 +169,6 @@ function findCardInBattlefield(state: GameState, cardId: string): Card | undefin
 function addCardToBattlefield(state: GameState, playerName: string, cardId: string, cardName: string): Card | undefined {
     const trimmedPlayerName = playerName.trim();
     let actualPlayerKey = Object.keys(state.players).find(key => key.trim() === trimmedPlayerName);
-
     if (!actualPlayerKey) {
         return undefined;
     }
