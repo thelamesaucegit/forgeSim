@@ -96,10 +96,6 @@ async function startMatch(payload: StartMatchPayload) {
     return;
   }
   
-  // ---
-  // FIX: Declare `validTeamIds` here, outside the try block, so it's accessible
-  // to the entire `startMatch` function scope.
-  // ---
   let validTeamIds: string[];
 
   try {
@@ -107,7 +103,6 @@ async function startMatch(payload: StartMatchPayload) {
     if (teamsError || !teamsData) {
         throw new Error(teamsError?.message || "Failed to fetch team IDs for parser validation.");
     }
-    // Initialize the variable here.
     validTeamIds = teamsData.map(t => t.id);
 
     await cleanDecksDirectory();
@@ -136,12 +131,7 @@ async function startMatch(payload: StartMatchPayload) {
   });
 
   const processLine = (line: string) => {
-     // ---
-    // TEMPORARY DIAGNOSTIC LOG: Add this line to see all output from Forge.
-    // ---
-    console.log(`[FORGE_LOG] ${line}`);
     if (line) {
-      // Now `validTeamIds` is accessible here.
       const newState = parseLogLine(line, currentGameState, validTeamIds);
       if (newState) {
         currentGameState = newState;
@@ -150,14 +140,25 @@ async function startMatch(payload: StartMatchPayload) {
     }
   };
 
+  // ---
+  // FIX: Implement a buffer to handle incomplete stream data. This ensures
+  // the parser only ever receives complete lines, preventing intermittent failures.
+  // ---
+  let stdoutBuffer = '';
   forgeProcess.stdout.on('data', (data) => {
-    let stdoutBuffer = data.toString();
+    stdoutBuffer += data.toString();
     let newlineIndex;
     while ((newlineIndex = stdoutBuffer.indexOf('\n')) >= 0) {
       const line = stdoutBuffer.substring(0, newlineIndex).trim();
       stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
-      processLine(line);
+      if (line) { // Process non-empty lines
+        processLine(line);
+      }
     }
+  });
+
+  // Process any remaining data when the stream closes.
+  forgeProcess.stdout.on('end', () => {
     if (stdoutBuffer.length > 0) {
       processLine(stdoutBuffer.trim());
     }
