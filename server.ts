@@ -51,7 +51,6 @@ async function cleanDecksDirectory(): Promise<void> {
     }
 }
 
-
 const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
   if (req.url === '/health' && req.method === 'GET') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -132,6 +131,7 @@ async function startMatch(payload: StartMatchPayload) {
 
   const processLine = (line: string) => {
     if (line) {
+      // This call now matches the corrected parser signature.
       const newState = parseLogLine(line, currentGameState, validTeamIds);
       if (newState) {
         currentGameState = newState;
