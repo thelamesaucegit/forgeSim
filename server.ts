@@ -131,10 +131,6 @@ async function startMatch(payload: StartMatchPayload) {
   });
 
   const processLine = (line: string) => {
-    // --- RE-ADD DIAGNOSTIC LOG ---
-    // This will print every line from the Forge process to the runtime logs.
-    console.log(`[FORGE_LOG] ${line}`);
-
     if (line) {
       const newState = parseLogLine(line, currentGameState, validTeamIds);
       if (newState) {
@@ -143,7 +139,7 @@ async function startMatch(payload: StartMatchPayload) {
       }
     }
   };
-  
+
   let stdoutBuffer = '';
   forgeProcess.stdout.on('data', (data) => {
     stdoutBuffer += data.toString();
