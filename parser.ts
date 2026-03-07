@@ -33,7 +33,13 @@ export function getInitialState(): GameState {
 }
 
 // --- Regex Definitions ---
-const regexGenericPlayer = /(Ai\(\d+\)-.*?)(?:\s+\(AI:|\s+vs\s+|$)/g;
+
+// ---
+// FIX: The regexPlayerSetup now captures the FULL player string, including the (AI: ...) part.
+// It looks for two of these groups separated by " vs ".
+// ---
+const regexPlayerSetup = /^(Ai\(\d+\)-.*? \(AI: .*?\)) vs (Ai\(\d+\)-.*? \(AI: .*?\))/;
+
 const regexTurn = /Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/;
 const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)/;
 const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i;
@@ -45,10 +51,9 @@ const regexMulligan = /Mulligan: (?<player>.+) has kept a hand of (?<handSize>\d
 const regexPhase = /^Phase: (.*)/;
 
 // ---
-// FIX: The regex now correctly accounts for the full player name format in the winner line,
-// including the optional `(AI: ...)` part.
+// FIX: The regex for the game end now correctly and robustly captures the full winner name.
 // ---
-const regexGameEnd = /Game Result:.*? (Ai\(\d+\)-.*? \(AI: .*?\))\s+has won!/;
+const regexGameEnd = /Game Result:.*? (Ai\(\d+\)-.*? \(AI: .*?\)) has won!/;
 
 
 export function parseLogLine(line: string, currentState: GameState, validTeamIds: string[]): GameState | null {
@@ -58,6 +63,7 @@ export function parseLogLine(line: string, currentState: GameState, validTeamIds
   match = line.match(regexGameEnd);
   if (match && match[1]) {
     const winnerName = match[1].trim();
+    // Validate that the captured winner is one of the players we've already identified.
     if (Object.keys(state.players).includes(winnerName)) {
         state.winner = winnerName;
         console.log(`[PARSER_SUCCESS] Winner captured and validated: ${state.winner}`);
@@ -65,25 +71,21 @@ export function parseLogLine(line: string, currentState: GameState, validTeamIds
     }
   }
   
+  // ---
+  // FIX: This logic no longer needs to validate against the DB. It uses a single, robust
+  // regex to capture both full player names directly from the "vs" line.
+  // ---
   if (Object.keys(state.players).length === 0 && line.includes("vs")) {
-    const potentialPlayers = [...line.matchAll(regexGenericPlayer)].map(m => m[1].trim());
+    match = line.match(regexPlayerSetup);
     
-    if (potentialPlayers.length >= 2) {
-        const p1LogName = potentialPlayers[0];
-        const p2LogName = potentialPlayers[1];
+    if (match && match[1] && match[2]) {
+        const p1LogName = match[1].trim();
+        const p2LogName = match[2].trim();
 
-        const p1IsValid = validTeamIds.some(id => p1LogName.toLowerCase().includes(id.toLowerCase()));
-        const p2IsValid = validTeamIds.some(id => p2LogName.toLowerCase().includes(id.toLowerCase()));
-
-        if (p1IsValid && p2IsValid) {
-            // Reconstruct the full name as it appears in other log lines
-            const fullP1Name = `${p1LogName} (AI: ${deck1.aiProfile})`;
-            const fullP2Name = `${p2LogName} (AI: ${deck2.aiProfile})`;
-            state.players[fullP1Name] = { name: fullP1Name, life: 20, battlefield: [], handSize: 7 };
-            state.players[fullP2Name] = { name: fullP2Name, life: 20, battlefield: [], handSize: 7 };
-            console.log(`[PARSER_SUCCESS] Validated and set up players: ${fullP1Name} and ${fullP2Name}`);
-            return state;
-        }
+        state.players[p1LogName] = { name: p1LogName, life: 20, battlefield: [], handSize: 7 };
+        state.players[p2LogName] = { name: p2LogName, life: 20, battlefield: [], handSize: 7 };
+        console.log(`[PARSER_SUCCESS] Set up players: ${p1LogName} and ${p2LogName}`);
+        return state;
     }
   }
   
