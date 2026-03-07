@@ -141,8 +141,7 @@ async function startMatch(payload: StartMatchPayload) {
   };
 
   // ---
-  // FIX: Implement a buffer to handle incomplete stream data. This ensures
-  // the parser only ever receives complete lines, preventing intermittent failures.
+  // This is the critical fix for the stream buffering issue.
   // ---
   let stdoutBuffer = '';
   forgeProcess.stdout.on('data', (data) => {
@@ -151,13 +150,12 @@ async function startMatch(payload: StartMatchPayload) {
     while ((newlineIndex = stdoutBuffer.indexOf('\n')) >= 0) {
       const line = stdoutBuffer.substring(0, newlineIndex).trim();
       stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
-      if (line) { // Process non-empty lines
+      if (line) {
         processLine(line);
       }
     }
   });
 
-  // Process any remaining data when the stream closes.
   forgeProcess.stdout.on('end', () => {
     if (stdoutBuffer.length > 0) {
       processLine(stdoutBuffer.trim());
