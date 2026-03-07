@@ -43,8 +43,6 @@ const regexTurn = /Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/;
 const regexPhase = /^Phase: (.*)/;
 const regexMulligan = /Mulligan: (?<player>.+) has kept a hand of (?<handSize>\d+) cards/;
 const regexGameEnd = /Game Result:.*? (Ai\(\d+\)-.*? \(AI: .*?\)) has won!/;
-
-// --- NEW/IMPROVED REGEX ---
 const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)/;
 const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i;
 const regexResolve = /Resolve Stack: (?<cardName>.+) - .*?((?<cardId>\d+))?/;
@@ -52,8 +50,10 @@ const regexPlayerDamage = /Damage: .* deals \d+ .*damage to (?<targetPlayer>Ai\(
 const regexZoneChange = /Zone Change: (?<cardName>.+?) \((?<cardId>\d+)\) was put into (?<to>\w+) from (?<from>\w+)/;
 const regexAttack = /Combat: (?<player>.+) assigned (?<cardName>.+) \((?<cardId>\d+)\) to attack .*/;
 
-
-export function parseLogLine(line: string, currentState: GameState): GameState | null {
+// ---
+// FIX: The function signature is corrected to accept the `validTeamIds` array.
+// ---
+export function parseLogLine(line: string, currentState: GameState, validTeamIds: string[]): GameState | null {
   const state = JSON.parse(JSON.stringify(currentState)) as GameState;
   let match: RegExpMatchArray | null;
 
@@ -63,11 +63,17 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
     if (match && match[1] && match[2]) {
         const p1LogName = match[1].trim();
         const p2LogName = match[2].trim();
-        const initialDeckSize = 60; // Assuming standard 60-card decks
-        state.players[p1LogName] = { name: p1LogName, life: 20, handSize: 7, librarySize: initialDeckSize - 7, battlefield: [], graveyard: [], exile: [] };
-        state.players[p2LogName] = { name: p2LogName, life: 20, handSize: 7, librarySize: initialDeckSize - 7, battlefield: [], graveyard: [], exile: [] };
-        console.log(`[PARSER_SUCCESS] Set up players: ${p1LogName} and ${p2LogName}`);
-        return state;
+        
+        const p1IsValid = validTeamIds.some(id => p1LogName.toLowerCase().includes(id.toLowerCase()));
+        const p2IsValid = validTeamIds.some(id => p2LogName.toLowerCase().includes(id.toLowerCase()));
+
+        if (p1IsValid && p2IsValid) {
+            const initialDeckSize = 60; // Assuming standard 60-card decks
+            state.players[p1LogName] = { name: p1LogName, life: 20, handSize: 7, librarySize: initialDeckSize - 7, battlefield: [], graveyard: [], exile: [] };
+            state.players[p2LogName] = { name: p2LogName, life: 20, handSize: 7, librarySize: initialDeckSize - 7, battlefield: [], graveyard: [], exile: [] };
+            console.log(`[PARSER_SUCCESS] Validated and set up players: ${p1LogName} and ${p2LogName}`);
+            return state;
+        }
     }
   }
 
@@ -76,7 +82,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   if (match?.groups) {
     state.turn = parseInt(match.groups.turnNum, 10);
     state.activePlayer = match.groups.player.trim();
-    // Untap all cards and reset attack status at the start of a turn
     for (const playerName in state.players) {
         state.players[playerName].battlefield.forEach((card: Card) => {
             card.isTapped = false;
@@ -84,8 +89,7 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
             card.isBlocked = false;
         });
     }
-    // Decrement library size for the active player's draw step
-    if(state.turn > 1) {
+    if(state.turn > 1 && state.players[state.activePlayer]) {
         state.players[state.activePlayer].librarySize--;
     }
     return state;
@@ -108,8 +112,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   match = line.match(regexCast);
   if (match?.groups) {
       const { cardName } = match.groups;
-      // Temporarily add to stack; we need an ID but the log doesn't provide one here.
-      // We'll reconcile it during the Resolve Stack event.
       state.stack.push({ id: 'stack-card', name: cardName });
       return state;
   }
@@ -118,7 +120,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   if (match?.groups) {
       const { cardName, cardId } = match.groups;
       state.stack = state.stack.filter(c => c.name !== cardName);
-      // If the resolving card has an ID, it's a permanent entering the battlefield.
       if (cardId) {
           const owner = findCardOwner(state, cardName, "Stack");
           if(owner) addCardToBattlefield(state, owner, cardId, cardName);
@@ -130,11 +131,9 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   if (match?.groups) {
       const { cardName, cardId, to, from } = match.groups;
       const card = { id: cardId, name: cardName };
-      // Remove from old zone
       for (const pName in state.players) {
           if(from === 'Battlefield') state.players[pName].battlefield = state.players[pName].battlefield.filter(c => c.id !== cardId);
       }
-      // Add to new zone
       const owner = findCardOwner(state, cardName, from, cardId);
       if(owner) {
           if (to === 'Graveyard') state.players[owner].graveyard.push(card);
@@ -146,7 +145,7 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
   // --- Combat and Damage ---
   match = line.match(regexAttack);
   if (match?.groups) {
-    const { player, cardId, cardName } = match.groups;
+    const { player, cardId } = match.groups;
     const card = findCardInBattlefield(state, cardId);
     if (card) {
         card.isAttacking = true;
@@ -184,8 +183,6 @@ export function parseLogLine(line: string, currentState: GameState): GameState |
 // --- UTILITY FUNCTIONS ---
 
 function findCardOwner(state: GameState, cardName: string, fromZone: string, cardId?: string): string | null {
-    // This is a heuristic; for now, we assume the active player is the owner.
-    // A more robust solution might need more detailed logs from Forge.
     return state.activePlayer;
 }
 
