@@ -179,6 +179,8 @@ function addCardToBattlefield(state: GameState, playerName: string, cardId: stri
     const trimmedPlayerName = playerName.trim();
     let actualPlayerKey = Object.keys(state.players).find(key => key.trim() === trimmedPlayerName);
     if (!actualPlayerKey) {
+        // This can happen if the log line for a card action appears before the player setup line is parsed.
+        // We can't do anything, so we just ignore it.
         return undefined;
     }
     
