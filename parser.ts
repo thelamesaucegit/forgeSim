@@ -50,9 +50,8 @@ const regexPlayerDamage = /Damage: .* deals \d+ .*damage to (?<targetPlayer>Ai\(
 const regexZoneChange = /Zone Change: (?<cardName>.+?) \((?<cardId>\d+)\) was put into (?<to>\w+) from (?<from>\w+)/;
 const regexAttack = /Combat: (?<player>.+) assigned (?<cardName>.+) \((?<cardId>\d+)\) to attack .*/;
 
-// ---
-// FIX: The function signature is corrected to accept the `validTeamIds` array.
-// ---
+
+// The function signature now correctly accepts three arguments.
 export function parseLogLine(line: string, currentState: GameState, validTeamIds: string[]): GameState | null {
   const state = JSON.parse(JSON.stringify(currentState)) as GameState;
   let match: RegExpMatchArray | null;
@@ -68,7 +67,7 @@ export function parseLogLine(line: string, currentState: GameState, validTeamIds
         const p2IsValid = validTeamIds.some(id => p2LogName.toLowerCase().includes(id.toLowerCase()));
 
         if (p1IsValid && p2IsValid) {
-            const initialDeckSize = 60; // Assuming standard 60-card decks
+            const initialDeckSize = 60;
             state.players[p1LogName] = { name: p1LogName, life: 20, handSize: 7, librarySize: initialDeckSize - 7, battlefield: [], graveyard: [], exile: [] };
             state.players[p2LogName] = { name: p2LogName, life: 20, handSize: 7, librarySize: initialDeckSize - 7, battlefield: [], graveyard: [], exile: [] };
             console.log(`[PARSER_SUCCESS] Validated and set up players: ${p1LogName} and ${p2LogName}`);
@@ -145,7 +144,7 @@ export function parseLogLine(line: string, currentState: GameState, validTeamIds
   // --- Combat and Damage ---
   match = line.match(regexAttack);
   if (match?.groups) {
-    const { player, cardId } = match.groups;
+    const { cardId } = match.groups;
     const card = findCardInBattlefield(state, cardId);
     if (card) {
         card.isAttacking = true;
