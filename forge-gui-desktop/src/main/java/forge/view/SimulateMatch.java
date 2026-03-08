@@ -12,6 +12,10 @@ import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang3.time.StopWatch;
 
+// --- NEW: Import the GSON library ---
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
 import forge.LobbyPlayer;
 import forge.deck.Deck;
 import forge.deck.DeckGroup;
@@ -43,7 +47,6 @@ public class SimulateMatch {
     public static void simulate(String[] args) {
         // We pass 'true' to tell the FModel that this is a simulation and not a GUI session.
         FModel.initialize(null, null, true);
-
         System.out.println("Simulation mode");
 
         if (args.length < 4) {
@@ -53,7 +56,6 @@ public class SimulateMatch {
 
         final Map<String, List<String>> params = new HashMap<String, List<String>>();
         List<String> options = null;
-
         // Correctly parse command-line arguments, allowing multiple values for a single flag.
         for (int i = 1; i < args.length; i++) {
             final String a = args[i];
@@ -65,7 +67,6 @@ public class SimulateMatch {
                     return;
                 }
                 String key = a.substring(1);
-
                 // Get the existing list for this flag, or create a new one if it's the first time.
                 options = params.computeIfAbsent(key, k -> new ArrayList<>());
             } else if (options != null) {
@@ -86,29 +87,25 @@ public class SimulateMatch {
             matchSize = Integer.parseInt(params.get("m").get(0));
         }
 
-        boolean outputGamelog = !params.containsKey("q");
-
         GameType type = GameType.Constructed;
         if (params.containsKey("f")) {
             type = GameType.valueOf(WordUtil.capitalize(params.get("f").get(0)));
         }
+
         GameRules rules = new GameRules(type);
         rules.setAppliedVariants(EnumSet.of(type));
-
         if (matchSize != 0) {
             rules.setGamesPerMatch(matchSize);
         }
 
         if (params.containsKey("t")) {
-            simulateTournament(params, rules, outputGamelog);
+            simulateTournament(params, rules);
             System.out.flush();
             return;
         }
 
         List<RegisteredPlayer> pp = new ArrayList<RegisteredPlayer>();
-
         StringBuilder sb = new StringBuilder();
-
         int i = 1;
         if (params.containsKey("d")) {
             for (String deck : params.get("d")) {
@@ -117,16 +114,13 @@ public class SimulateMatch {
                     System.out.println(TextUtil.concatNoSpace("Could not load deck - ", deck, ", match cannot start"));
                     return;
                 }
-
                 if (i > 1) {
                     sb.append(" vs ");
                 }
-
                 String aiProfile = "";
                 if (params.containsKey("a") && (i - 1) < params.get("a").size()) {
                     aiProfile = params.get("a").get(i - 1);
                 }
-
                 String playerName = TextUtil.concatNoSpace("Ai(", String.valueOf(i), ")-", d.getName());
                 // The player name used by the game engine should include the AI profile for clarity in logs
                 String fullPlayerName = playerName;
@@ -134,7 +128,6 @@ public class SimulateMatch {
                     fullPlayerName = TextUtil.concatNoSpace(playerName, " (AI: ", aiProfile, ")");
                 }
                 sb.append(fullPlayerName);
-
                 RegisteredPlayer rp;
                 if (type.equals(GameType.Commander)) {
                     rp = RegisteredPlayer.forCommander(d);
@@ -154,37 +147,38 @@ public class SimulateMatch {
 
         sb.append(" - ").append(Lang.nounWithNumeral(nGames, "game")).append(" of ").append(type);
         System.out.println(sb.toString());
+
         Match mc = new Match(rules, pp, "Test");
 
         if (matchSize != 0) {
             int iGame = 0;
             while (!mc.isMatchOver()) {
-                simulateSingleMatch(mc, iGame, outputGamelog);
+                simulateSingleMatch(mc, iGame);
                 iGame++;
             }
         } else {
             for (int iGame = 0; iGame < nGames; iGame++) {
-                simulateSingleMatch(mc, iGame, outputGamelog);
+                simulateSingleMatch(mc, iGame);
             }
         }
-
         System.out.flush();
     }
 
     private static void argumentHelp() {
-        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> <deck2[.dck]> ... -a [profile1] [profile2] ... -n [N] -q");
+        System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> <deck2[.dck]> ... -a [profile1] [profile2] ... -n [N]");
         System.out.println("\\t-d: One or more deck names or filenames, separated by spaces.");
         System.out.println("\\t-a: AI profiles for each deck, in corresponding order.");
         System.out.println("\\t-n: Number of games to play (defaults to 1).");
-        System.out.println("\\t-q: Quiet mode (suppresses full game log).");
-        // Add other arguments as needed
     }
 
-    public static void simulateSingleMatch(final Match mc, int iGame, boolean outputGamelog) {
+    public static void simulateSingleMatch(final Match mc, int iGame) {
         final StopWatch sw = new StopWatch();
         sw.start();
-        final Game g1 = mc.createGame();
 
+        // --- NEW: Initialize GSON for JSON conversion ---
+        final Gson gson = new GsonBuilder().create();
+
+        final Game g1 = mc.createGame();
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
                 mc.startGame(g1);
@@ -203,29 +197,25 @@ public class SimulateMatch {
             }
         }
 
-        List<GameLogEntry> log;
-        if (outputGamelog) {
-            log = g1.getGameLog().getLogEntries(null);
-        } else {
-            log = g1.getGameLog().getLogEntries(GameLogEntryType.MATCH_RESULTS);
-        }
+        // We always get all log entries.
+        List<GameLogEntry> log = g1.getGameLog().getLogEntries(null);
         Collections.reverse(log);
 
         for (GameLogEntry l : log) {
-            // The toString() method of the GameLogEntry record provides the formatted output.
-            System.out.println(l);
+            // --- FIX: Serialize the structured GameLogEntry object to JSON ---
+            System.out.println(gson.toJson(l));
         }
 
+        // Print final game result as a distinct, easily parsable line
         if (g1.getOutcome().isDraw()) {
-            System.out.printf("\\nGame Result: Game %d ended in a Draw! Took %d ms.%n", 1 + iGame, sw.getTime());
+            System.out.printf("JSON_GAME_RESULT:{\"winner\":null,\"duration\":%d}%n", sw.getTime());
         } else {
-            System.out.printf("\\nGame Result: Game %d ended in %d ms. %s has won!\\n\\n", 1 + iGame, sw.getTime(), g1.getOutcome().getWinningLobbyPlayer().getName());
+            System.out.printf("JSON_GAME_RESULT:{\"winner\":\"%s\",\"duration\":%d}%n", g1.getOutcome().getWinningLobbyPlayer().getName(), sw.getTime());
         }
     }
 
-    private static void simulateTournament(Map<String, List<String>> params, GameRules rules, boolean outputGamelog) {
+    private static void simulateTournament(Map<String, List<String>> params, GameRules rules) {
         String tournament = params.get("t").get(0);
-
         AbstractTournament tourney = null;
         int matchPlayers = params.containsKey("p") ? Integer.parseInt(params.get("p").get(0)) : 2;
         DeckGroup deckGroup = new DeckGroup("SimulatedTournament");
@@ -240,7 +230,6 @@ public class SimulateMatch {
                     return;
                 }
                 deckGroup.addAiDeck(d);
-
                 String aiProfile = "";
                 if (params.containsKey("a") && numPlayers < params.get("a").size()) {
                     aiProfile = params.get("a").get(numPlayers);
@@ -302,10 +291,8 @@ public class SimulateMatch {
         }
 
         tourney.initializeTournament();
-
         String lastWinner = "";
         int curRound = 0;
-
         System.out.println(TextUtil.concatNoSpace("Starting a ", tournament, " tournament with ",
                 String.valueOf(numPlayers), " players over ",
                 String.valueOf(tourney.getTotalRounds()), " rounds"));
@@ -326,21 +313,18 @@ public class SimulateMatch {
 
             TournamentPairing pairing = tourney.getNextPairing();
             List<RegisteredPlayer> regPlayers = AbstractTournament.registerTournamentPlayers(pairing, deckGroup);
-
             StringBuilder sb = new StringBuilder();
             sb.append("Round ").append(tourney.getActiveRound()).append(" - ");
             sb.append(pairing.outputHeader());
-
             System.out.println(sb.toString());
 
             if (!pairing.isBye()) {
                 Match mc = new Match(rules, regPlayers, "TourneyMatch");
-
                 int exceptions = 0;
                 int iGame = 0;
                 while (!mc.isMatchOver()) {
                     try {
-                        simulateSingleMatch(mc, iGame, outputGamelog);
+                        simulateSingleMatch(mc, iGame);
                         iGame++;
                     } catch (Exception e) {
                         exceptions++;
@@ -353,7 +337,6 @@ public class SimulateMatch {
                         }
                     }
                 }
-
                 LobbyPlayer winner = mc.getWinner().getPlayer();
                 for (TournamentPlayer tp : pairing.getPairedPlayers()) {
                     if (winner.equals(tp.getPlayer())) {
@@ -365,14 +348,9 @@ public class SimulateMatch {
                     }
                 }
             }
-
             tourney.reportMatchCompletion(pairing);
         }
         tourney.outputTournamentResults();
-    }
-
-    public static Match simulateOffthreadGame(List<Deck> decks, GameType format, int games) {
-        return null;
     }
 
     private static Deck deckFromCommandLineParameter(String deckname, GameType type) {
@@ -380,7 +358,6 @@ public class SimulateMatch {
         if (dotpos > 0 && dotpos == deckname.length() - 4) {
             String baseDir = type.equals(GameType.Commander) ?
                     ForgeConstants.DECK_COMMANDER_DIR : ForgeConstants.DECK_CONSTRUCTED_DIR;
-
             File f = new File(baseDir + deckname);
             if (!f.exists()) {
                 System.out.println("No deck found in " + baseDir);
