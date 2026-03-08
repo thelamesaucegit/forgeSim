@@ -3,7 +3,6 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 
-// --- INTERFACES (no changes) ---
 export interface Card {
   id: string;
   name: string;
@@ -36,13 +35,12 @@ export async function postProcessLog(
     validTeamIds: string[], 
     deck1Content: string, 
     deck2Content: string,
-    matchId: string // Pass in matchId for debug file naming
+    matchId: string
 ): Promise<{ gameStates: GameState[], winner: string | null }> {
 
     const lines = rawLog.split('\n').filter(line => line.trim() !== '');
     const LOGS_DIR = path.join(process.cwd(), "logs");
 
-    // --- PASS 1: Pre-computation and setup ---
     const { player1, player2 } = findPlayerNames(lines, validTeamIds);
     if (!player1 || !player2) {
         console.error("[PARSER_FATAL] Could not identify both players in the log.");
@@ -50,12 +48,10 @@ export async function postProcessLog(
     }
 
     const cardIdMap = buildCardIdMap(lines);
-
     const initialState = getInitialState(player1, player2, deck1Content, deck2Content);
     let currentState = JSON.parse(JSON.stringify(initialState));
     const allGameStates: GameState[] = [JSON.parse(JSON.stringify(initialState))];
     
-    // --- PASS 2: Iterate and build game states ---
     for (const line of lines) {
         let stateChanged = false;
         
@@ -73,7 +69,8 @@ export async function postProcessLog(
         updateState(parseCast(line, currentState));
         updateState(parseResolve(line, currentState, cardIdMap));
         updateState(parseZoneChange(line, currentState));
-        updateState(parseAttack(line, currentState));
+        updateState(parseAttack(line, currentState, cardIdMap)); // Pass map to update IDs
+        updateState(parseLand(line, currentState));
         
         if (stateChanged) {
             allGameStates.push(JSON.parse(JSON.stringify(currentState)));
@@ -87,8 +84,6 @@ export async function postProcessLog(
         }
     }
 
-    // --- NEW DIAGNOSTIC STEP ---
-    // Write the first few turns to a separate JSON file for easy debugging.
     try {
         const turnsToLog = allGameStates.filter(gs => gs.turn <= 4);
         const debugFilePath = path.join(LOGS_DIR, `${matchId}-debug-turns.json`);
@@ -110,7 +105,8 @@ const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i;
 const regexResolve = /Resolve Stack: (?<cardName>.+?) -/;
 const regexPlayerDamage = /Damage: .* deals (?<damage>\d+) .*damage to (?<targetPlayer>Ai\(\d+\)-.*? \(AI: .*?\))/;
 const regexZoneChange = /Zone Change: (?<cardName>.+?) \((?<cardId>\d+)\) was put into (?<to>\w+) from (?<from>\w+)/;
-const regexAttack = /Combat: .* assigned .* \((?<cardId>\d+)\) to attack/;
+const regexAttack = /Combat: .* assigned (?<cardName>.+?) \((?<cardId>\d+)\) to attack/;
+const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)/;
 
 function parseTurn(line: string, state: GameState): GameState | null {
     const match = line.match(regexTurn);
@@ -118,9 +114,11 @@ function parseTurn(line: string, state: GameState): GameState | null {
     const player = match.groups.player.trim();
     state.turn = parseInt(match.groups.turnNum, 10);
     state.activePlayer = player;
+    // The first turn of the game is not a draw step.
     if(state.turn > 1 && state.players[player]) {
-        state.players[player].librarySize--;
-        state.players[player].handSize++;
+        const activePlayer = state.players[player];
+        activePlayer.librarySize--;
+        activePlayer.handSize++;
     }
     return state;
 }
@@ -145,10 +143,9 @@ function parsePlayerDamage(line: string, state: GameState): GameState | null {
 function parseCast(line: string, state: GameState): GameState | null {
     const match = line.match(regexCast);
     if (!match?.groups) return null;
-    const { player, cardName } = match.groups;
+    const { player } = match.groups;
     if (state.players[player]) {
         state.players[player].handSize--;
-        // We no longer need to manage a stack array; the logic is self-contained.
     }
     return state;
 }
@@ -158,15 +155,18 @@ function parseResolve(line: string, state: GameState, cardIdMap: Map<string, str
     if (!match?.groups) return null;
     
     const { cardName } = match.groups;
+    const cleanCardName = cardName.trim();
     const isCreature = line.includes(" - Creature");
-    const cardId = cardIdMap.get(cardName.trim());
+    const activePlayer = state.activePlayer;
 
-    if (isCreature && cardId && state.activePlayer && state.players[state.activePlayer]) {
-        state.players[state.activePlayer].battlefield.push({ id: cardId, name: cardName });
+    if (isCreature && activePlayer && state.players[activePlayer]) {
+        // Create with a temporary ID. This ID will be updated when the card is first referenced in another event.
+        const tempId = `temp-${cleanCardName}-${Date.now()}`;
+        state.players[activePlayer].battlefield.push({ id: tempId, name: cleanCardName });
     } else if (!isCreature && !line.includes(" - Land")) {
-        if (state.activePlayer && state.players[state.activePlayer]) {
-            const tempId = `spell-${cardName.trim()}-${Date.now()}`;
-            state.players[state.activePlayer].graveyard.push({ id: tempId, name: cardName.trim() });
+        if (activePlayer && state.players[activePlayer]) {
+            const tempId = `spell-${cleanCardName}-${Date.now()}`;
+            state.players[activePlayer].graveyard.push({ id: tempId, name: cleanCardName });
         }
     }
     return state;
@@ -176,38 +176,74 @@ function parseZoneChange(line: string, state: GameState): GameState | null {
     const match = line.match(regexZoneChange);
     if (!match?.groups) return null;
     
-    const { cardName, cardId, to } = match.groups;
+    const { cardId, to } = match.groups;
     let ownerName: string | null = null;
+    let card: Card | undefined;
 
     for(const pName in state.players) {
         const cardIndex = state.players[pName].battlefield.findIndex(c => c.id === cardId);
         if(cardIndex > -1) {
             ownerName = pName;
-            const card = state.players[pName].battlefield.splice(cardIndex, 1)[0];
-            if(to.toLowerCase() === 'graveyard') state.players[ownerName].graveyard.push(card);
-            else if (to.toLowerCase() === 'exile') state.players[ownerName].exile.push(card);
+            card = state.players[pName].battlefield.splice(cardIndex, 1)[0];
             break;
         }
+    }
+
+    if (ownerName && card) {
+        if(to.toLowerCase() === 'graveyard') state.players[ownerName].graveyard.push(card);
+        else if (to.toLowerCase() === 'exile') state.players[ownerName].exile.push(card);
     }
     return state;
 }
 
-function parseAttack(line: string, state: GameState): GameState | null {
+function parseAttack(line: string, state: GameState, cardIdMap: Map<string, string>): GameState | null {
     const match = line.match(regexAttack);
     if (!match?.groups) return null;
-    const card = findCardOnBattlefield(state, match.groups.cardId);
-    if(card) card.isAttacking = true;
+    const { cardName, cardId } = match.groups;
+    
+    // First time we see an ID for a creature, it might have a temporary ID.
+    const tempCard = findTempCardOnBattlefield(state, cardName);
+    if (tempCard) {
+        tempCard.id = cardId; // Update the ID from temp to real
+        tempCard.isAttacking = true;
+    } else {
+        const card = findCardOnBattlefield(state, cardId);
+        if (card) card.isAttacking = true;
+    }
+    return state;
+}
+
+function parseLand(line: string, state: GameState): GameState | null {
+    const match = line.match(regexLand);
+    if (!match?.groups) return null;
+    const { player, cardName, cardId } = match.groups;
+    const trimmedPlayerName = player.trim();
+    if(state.players[trimmedPlayerName]) {
+        state.players[trimmedPlayerName].battlefield.push({ id: cardId, name: cardName });
+        state.players[trimmedPlayerName].handSize--;
+    }
     return state;
 }
 
 
 // --- Utility and Setup Functions ---
 function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Content: string): GameState {
-    const deck1Size = d1Content.split('\n').filter(line => line.trim() && !line.startsWith('[metadata]')).length;
-    const deck2Size = d2Content.split('\n').filter(line => line.trim() && !line.startsWith('[metadata]')).length;
+    const countCards = (content: string): number => {
+        return content.split('\n').reduce((count, line) => {
+            const trimmed = line.trim();
+            if (trimmed && !trimmed.startsWith('[') && trimmed.match(/^\d+\s+.+/)) {
+                const quantityMatch = trimmed.match(/^(\d+)\s/);
+                return count + (quantityMatch ? parseInt(quantityMatch[1], 10) : 0);
+            }
+            return count;
+        }, 0);
+    };
+
+    const deck1Size = countCards(d1Content);
+    const deck2Size = countCards(d2Content);
     
     const state: GameState = {
-        turn: 0, activePlayer: "", phase: "Setup", players: {}
+        turn: 0, activePlayer: "", players: {}
     };
     state.players[p1Name] = { name: p1Name, life: 20, handSize: 7, librarySize: deck1Size - 7, battlefield: [], graveyard: [], exile: [] };
     state.players[p2Name] = { name: p2Name, life: 20, handSize: 7, librarySize: deck2Size - 7, battlefield: [], graveyard: [], exile: [] };
@@ -264,4 +300,12 @@ function findCardOnBattlefield(state: GameState, cardId: string): Card | null {
         if(card) return card;
     }
     return null;
+}
+
+function findTempCardOnBattlefield(state: GameState, cardName: string): Card | undefined {
+    for (const playerName in state.players) {
+        const card = state.players[playerName].battlefield.find((c) => c.name === cardName && c.id.startsWith('temp-'));
+        if (card) return card;
+    }
+    return undefined;
 }
