@@ -24,7 +24,23 @@ export interface GameState {
   players: Record<string, PlayerState>;
   winner?: string;
   phase?: string;
+  // --- FIX: Add the missing 'stack' property to the interface ---
+  stack: any[];
 }
+
+// This function initializes the state for the parsing process.
+export function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Content: string): GameState {
+    const deck1Size = d1Content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
+    const deck2Size = d2Content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
+    
+    const state: GameState = {
+        turn: 0, activePlayer: "", stack: [], phase: "Setup", players: {}
+    };
+    state.players[p1Name] = { name: p1Name, life: 20, handSize: 7, librarySize: deck1Size - 7, battlefield: [], graveyard: [], exile: [] };
+    state.players[p2Name] = { name: p2Name, life: 20, handSize: 7, librarySize: deck2Size - 7, battlefield: [], graveyard: [], exile: [] };
+    return state;
+}
+
 
 // Main function to orchestrate the parsing
 export function postProcessLog(
@@ -76,7 +92,6 @@ export function postProcessLog(
     
     const winner = findWinner(lines, [player1, player2]);
     if (winner) {
-        // Ensure the final state reflects the winner
         if(allGameStates.length > 0) {
            allGameStates[allGameStates.length - 1].winner = winner;
         }
@@ -86,9 +101,18 @@ export function postProcessLog(
 }
 
 // --- Sub-Parsers for each event type ---
+const regexPlayerSetup = /^(Ai\(\d+\)-.*? \(AI: .*?\)) vs (Ai\(\d+\)-.*? \(AI: .*?\))/;
+const regexTurn = /Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/;
+const regexPhase = /^Phase: (.*)/;
+const regexGameEnd = /Game Result:.*? (Ai\(\d+\)-.*? \(AI: .*?\)) has won!/;
+const regexCast = /Add To Stack: (?<player>.+) cast (?<cardName>.+)/i;
+const regexResolve = /Resolve Stack: (?<cardName>.+?) -/;
+const regexPlayerDamage = /Damage: .* deals (?<damage>\d+) .*damage to (?<targetPlayer>Ai\(\d+\)-.*? \(AI: .*?\))/;
+const regexZoneChange = /Zone Change: (?<cardName>.+?) \((?<cardId>\d+)\) was put into (?<to>\w+) from (?<from>\w+)/;
+const regexAttack = /Combat: .* assigned .* \((?<cardId>\d+)\) to attack/;
 
 function parseTurn(line: string, state: GameState): GameState | null {
-    const match = line.match(/Turn: Turn (?<turnNum>\d+) \((?<player>.+)\)/);
+    const match = line.match(regexTurn);
     if (!match?.groups) return null;
     const player = match.groups.player.trim();
     state.turn = parseInt(match.groups.turnNum, 10);
@@ -101,14 +125,14 @@ function parseTurn(line: string, state: GameState): GameState | null {
 }
 
 function parsePhase(line: string, state: GameState): GameState | null {
-    const match = line.match(/^Phase: (.*)/);
+    const match = line.match(regexPhase);
     if (!match || !match[1]) return null;
     state.phase = match[1].trim();
     return state;
 }
 
 function parsePlayerDamage(line: string, state: GameState): GameState | null {
-    const match = line.match(/Damage: .* deals (?<damage>\d+) .*damage to (?<targetPlayer>Ai\(\d+\)-.*? \(AI: .*?\))/);
+    const match = line.match(regexPlayerDamage);
     if (!match?.groups) return null;
     const { damage, targetPlayer } = match.groups;
     if (state.players[targetPlayer]) {
@@ -118,39 +142,41 @@ function parsePlayerDamage(line: string, state: GameState): GameState | null {
 }
 
 function parseCast(line: string, state: GameState): GameState | null {
-    const match = line.match(/Add To Stack: (?<player>.+) cast (?<cardName>.+)/i);
+    const match = line.match(regexCast);
     if (!match?.groups) return null;
-    const { player } = match.groups;
+    const { player, cardName } = match.groups;
     if (state.players[player]) {
         state.players[player].handSize--;
+        state.stack.push({ name: cardName, player });
     }
     return state;
 }
 
 function parseResolve(line: string, state: GameState, cardIdMap: Map<string, string>): GameState | null {
-    const match = line.match(/Resolve Stack: (?<cardName>.+?) -/);
+    const match = line.match(regexResolve);
     if (!match?.groups) return null;
     
     const { cardName } = match.groups;
-    const cardId = cardIdMap.get(cardName.trim());
-    const isCreature = line.includes(" - Creature");
+    const castIndex = state.stack.findIndex(c => c.name === cardName);
+    if (castIndex > -1) {
+        const castSpell = state.stack.splice(castIndex, 1)[0];
+        const isCreature = line.includes(" - Creature");
+        const cardId = cardIdMap.get(cardName.trim());
 
-    if (isCreature && cardId) {
-        if(state.activePlayer && state.players[state.activePlayer]) {
-            state.players[state.activePlayer].battlefield.push({ id: cardId, name: cardName });
-        }
-    } else if (!isCreature && !line.includes(" - Land")) {
-        // It's likely an instant or sorcery, move to graveyard.
-        if (state.activePlayer && state.players[state.activePlayer]) {
-            const tempId = `spell-${cardName.trim()}-${Date.now()}`;
-            state.players[state.activePlayer].graveyard.push({ id: tempId, name: cardName.trim() });
+        if (isCreature && cardId && state.players[castSpell.player]) {
+            state.players[castSpell.player].battlefield.push({ id: cardId, name: cardName });
+        } else if (!isCreature && !line.includes(" - Land")) {
+            if (state.players[castSpell.player]) {
+                const tempId = `spell-${cardName.trim()}-${Date.now()}`;
+                state.players[castSpell.player].graveyard.push({ id: tempId, name: cardName.trim() });
+            }
         }
     }
     return state;
 }
 
 function parseZoneChange(line: string, state: GameState): GameState | null {
-    const match = line.match(/Zone Change: (?<cardName>.+?) \((?<cardId>\d+)\) was put into (?<to>\w+) from (?<from>\w+)/);
+    const match = line.match(regexZoneChange);
     if (!match?.groups) return null;
     
     const { cardName, cardId, to } = match.groups;
@@ -170,28 +196,14 @@ function parseZoneChange(line: string, state: GameState): GameState | null {
 }
 
 function parseAttack(line: string, state: GameState): GameState | null {
-    const match = line.match(/Combat: .* assigned .* \((?<cardId>\d+)\) to attack/);
+    const match = line.match(regexAttack);
     if (!match?.groups) return null;
     const card = findCardOnBattlefield(state, match.groups.cardId);
     if(card) card.isAttacking = true;
     return state;
 }
 
-
 // --- Utility and Setup Functions ---
-
-function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Content: string): GameState {
-    const deck1Size = d1Content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
-    const deck2Size = d2Content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
-    
-    const state: GameState = {
-        turn: 0, activePlayer: "", stack: [], phase: "Setup", players: {}
-    };
-    state.players[p1Name] = { name: p1Name, life: 20, handSize: 7, librarySize: deck1Size - 7, battlefield: [], graveyard: [], exile: [] };
-    state.players[p2Name] = { name: p2Name, life: 20, handSize: 7, librarySize: deck2Size - 7, battlefield: [], graveyard: [], exile: [] };
-    return state;
-}
-
 function buildCardIdMap(lines: string[]): Map<string, string> {
     const cardIdMap = new Map<string, string>();
     const regex = /(?<cardName>.+?) \((?<cardId>\d+)\)/;
