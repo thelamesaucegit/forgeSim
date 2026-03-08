@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import * as http from "http";
 import { createClient } from "@supabase/supabase-js";
-import { parseLogLine, getInitialState, GameState } from "./parser.js";
+import { postProcessLog } from "./parser.js"; // We import the new post-processor
 
 interface DeckInfo {
   filename: string;
@@ -21,6 +21,7 @@ interface StartMatchPayload {
 
 const APP_DIR = process.cwd();
 const FORGE_DECKS_DIR = path.join(APP_DIR, "decks", "constructed");
+const LOGS_DIR = path.join(APP_DIR, "logs"); // A new directory for raw logs
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
@@ -32,25 +33,13 @@ if (!supabaseUrl || !supabaseKey) {
 const supabase = createClient(supabaseUrl, supabaseKey);
 console.log("[INIT] Supabase client initialized.");
 
-async function cleanDecksDirectory(): Promise<void> {
-    try {
-        const files = await fs.readdir(FORGE_DECKS_DIR);
-        const deletePromises = files
-            .filter(file => file.endsWith('.dck'))
-            .map(file => fs.unlink(path.join(FORGE_DECKS_DIR, file)));
-        await Promise.all(deletePromises);
-        console.log("[CLEANUP] Successfully removed old .dck files.");
-    } catch (error: unknown) {
-        if (error instanceof Error && 'code' in error && error.code === 'ENOENT') {
-            console.log("[CLEANUP] Decks directory not found, will be created.");
-            await fs.mkdir(FORGE_DECKS_DIR, { recursive: true });
-        } else {
-            console.error("[CLEANUP_ERROR] Failed to clean decks directory:", error);
-            throw error;
-        }
-    }
+async function ensureDir(dir: string): Promise<void> {
+  try {
+    await fs.access(dir);
+  } catch (error) {
+    await fs.mkdir(dir, { recursive: true });
+  }
 }
-
 
 const server = http.createServer(async (req: http.IncomingMessage, res: http.ServerResponse) => {
   if (req.url === '/health' && req.method === 'GET') {
@@ -96,16 +85,9 @@ async function startMatch(payload: StartMatchPayload) {
     return;
   }
   
-  let validTeamIds: string[];
-
   try {
-    const { data: teamsData, error: teamsError } = await supabase.from('teams').select('id');
-    if (teamsError || !teamsData) {
-        throw new Error(teamsError?.message || "Failed to fetch team IDs for parser validation.");
-    }
-    validTeamIds = teamsData.map(t => t.id);
-
-    await cleanDecksDirectory();
+    await ensureDir(FORGE_DECKS_DIR);
+    await ensureDir(LOGS_DIR);
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck1.filename), deck1.content);
     await fs.writeFile(path.join(FORGE_DECKS_DIR, deck2.filename), deck2.content);
   } catch (e: unknown) {
@@ -115,11 +97,6 @@ async function startMatch(payload: StartMatchPayload) {
     return; 
   }
 
-  const initialDeck1Size = deck1.content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
-  const initialDeck2Size = deck2.content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
-  let currentGameState: GameState = getInitialState(initialDeck1Size, initialDeck2Size);
-  
-  const allGameStates: GameState[] = [];
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
   const commandArgs = [
     "-Xmx1024m", `-Djava.awt.headless=true`, `-Dforge.home=${APP_DIR}`,
@@ -133,34 +110,9 @@ async function startMatch(payload: StartMatchPayload) {
     stdio: ['ignore', 'pipe', 'pipe']
   });
 
-  const processLine = (line: string) => {
-    console.log(`[FORGE_LOG] ${line}`);
-    if (line) {
-      const newState = parseLogLine(line, currentGameState, validTeamIds);
-      if (newState) {
-        currentGameState = newState;
-        allGameStates.push({ ...currentGameState });
-      }
-    }
-  };
-
-  let stdoutBuffer = '';
+  const rawLogData: string[] = [];
   forgeProcess.stdout.on('data', (data) => {
-    stdoutBuffer += data.toString();
-    let newlineIndex;
-    while ((newlineIndex = stdoutBuffer.indexOf('\n')) >= 0) {
-      const line = stdoutBuffer.substring(0, newlineIndex).trim();
-      stdoutBuffer = stdoutBuffer.substring(newlineIndex + 1);
-      if (line) {
-        processLine(line);
-      }
-    }
-  });
-
-  forgeProcess.stdout.on('end', () => {
-    if (stdoutBuffer.length > 0) {
-      processLine(stdoutBuffer.trim());
-    }
+    rawLogData.push(data.toString());
   });
 
   forgeProcess.stderr.on('data', (data) => {
@@ -170,27 +122,40 @@ async function startMatch(payload: StartMatchPayload) {
   forgeProcess.on("close", async (code) => {
     console.log(`[MATCH_COMPLETE] Match ${matchId} finished with code ${code}.`);
     
-    const finalPlayerKeys = Object.keys(currentGameState.players);
-    if (code === 0 && currentGameState.winner && finalPlayerKeys.length >= 2) {
-      console.log(`[DB] Match ${matchId} winner is ${currentGameState.winner}. Saving full game log...`);
-      
-      const { error: updateError } = await supabase
-        .from('sim_matches')
-        .update({
-          winner: currentGameState.winner,
-          game_states: allGameStates,
-        })
-        .eq('id', matchId);
-      
-      if (updateError) {
-        console.error(`[DB_WINNER_ERROR] Failed to update final match data for ${matchId}:`, updateError.message);
-      } else {
-        console.log(`[DB] Successfully saved winner and game log for match ${matchId}.`);
+    if (code === 0) {
+      const fullLog = rawLogData.join('');
+      const logFilePath = path.join(LOGS_DIR, `${matchId}.log`);
+      await fs.writeFile(logFilePath, fullLog);
+      console.log(`[LOG_SAVED] Raw log saved to ${logFilePath}`);
+
+      // --- TRIGGER THE POST-PROCESSING STEP ---
+      try {
+        const { data: teamsData, error: teamsError } = await supabase.from('teams').select('id');
+        if (teamsError || !teamsData) throw new Error("Could not fetch team IDs for post-processing.");
+        const validTeamIds = teamsData.map(t => t.id);
+
+        const { gameStates, winner } = postProcessLog(fullLog, validTeamIds, deck1.content, deck2.content);
+
+        if (winner && gameStates.length > 0) {
+          console.log(`[DB] Post-processing complete. Winner is ${winner}. Saving full game log...`);
+          const { error: updateError } = await supabase
+            .from('sim_matches')
+            .update({ winner: winner, game_states: gameStates })
+            .eq('id', matchId);
+          
+          if (updateError) {
+            console.error(`[DB_UPDATE_ERROR] Failed to update final match data for ${matchId}:`, updateError.message);
+          } else {
+            console.log(`[DB] Successfully saved winner and game log for match ${matchId}.`);
+          }
+        } else {
+          console.warn(`[POST_PROCESS_WARN] Match ${matchId} post-processing did not yield a winner or game states.`);
+        }
+      } catch(e) {
+         console.error(`[POST_PROCESS_FATAL] A critical error occurred during post-processing for match ${matchId}:`, e);
       }
-    } else if (code !== 0) {
-      console.error(`[MATCH_ERROR] Java process for match ${matchId} exited with non-zero code: ${code}`);
     } else {
-      console.warn(`[MATCH_WARN] Match ${matchId} finished but key data (winner or players) was not parsed.`);
+      console.error(`[MATCH_ERROR] Java process for match ${matchId} exited with non-zero code: ${code}`);
     }
   });
 
