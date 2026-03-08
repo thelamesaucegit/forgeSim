@@ -1,5 +1,9 @@
 // src/forgesim/parser.ts
 
+import * as fs from "fs/promises";
+import * as path from "path";
+
+// --- INTERFACES (no changes) ---
 export interface Card {
   id: string;
   name: string;
@@ -24,33 +28,19 @@ export interface GameState {
   players: Record<string, PlayerState>;
   winner?: string;
   phase?: string;
-  // --- FIX: Add the missing 'stack' property to the interface ---
-  stack: any[];
 }
-
-// This function initializes the state for the parsing process.
-export function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Content: string): GameState {
-    const deck1Size = d1Content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
-    const deck2Size = d2Content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
-    
-    const state: GameState = {
-        turn: 0, activePlayer: "", stack: [], phase: "Setup", players: {}
-    };
-    state.players[p1Name] = { name: p1Name, life: 20, handSize: 7, librarySize: deck1Size - 7, battlefield: [], graveyard: [], exile: [] };
-    state.players[p2Name] = { name: p2Name, life: 20, handSize: 7, librarySize: deck2Size - 7, battlefield: [], graveyard: [], exile: [] };
-    return state;
-}
-
 
 // Main function to orchestrate the parsing
-export function postProcessLog(
+export async function postProcessLog(
     rawLog: string, 
     validTeamIds: string[], 
     deck1Content: string, 
-    deck2Content: string
-): { gameStates: GameState[], winner: string | null } {
+    deck2Content: string,
+    matchId: string // Pass in matchId for debug file naming
+): Promise<{ gameStates: GameState[], winner: string | null }> {
 
     const lines = rawLog.split('\n').filter(line => line.trim() !== '');
+    const LOGS_DIR = path.join(process.cwd(), "logs");
 
     // --- PASS 1: Pre-computation and setup ---
     const { player1, player2 } = findPlayerNames(lines, validTeamIds);
@@ -95,6 +85,17 @@ export function postProcessLog(
         if(allGameStates.length > 0) {
            allGameStates[allGameStates.length - 1].winner = winner;
         }
+    }
+
+    // --- NEW DIAGNOSTIC STEP ---
+    // Write the first few turns to a separate JSON file for easy debugging.
+    try {
+        const turnsToLog = allGameStates.filter(gs => gs.turn <= 4);
+        const debugFilePath = path.join(LOGS_DIR, `${matchId}-debug-turns.json`);
+        await fs.writeFile(debugFilePath, JSON.stringify(turnsToLog, null, 2));
+        console.log(`[PARSER_DEBUG] Wrote first 4 turns to ${debugFilePath}`);
+    } catch (e) {
+        console.error("[PARSER_DEBUG] Failed to write debug file:", e);
     }
 
     return { gameStates: allGameStates, winner };
@@ -147,7 +148,7 @@ function parseCast(line: string, state: GameState): GameState | null {
     const { player, cardName } = match.groups;
     if (state.players[player]) {
         state.players[player].handSize--;
-        state.stack.push({ name: cardName, player });
+        // We no longer need to manage a stack array; the logic is self-contained.
     }
     return state;
 }
@@ -157,19 +158,15 @@ function parseResolve(line: string, state: GameState, cardIdMap: Map<string, str
     if (!match?.groups) return null;
     
     const { cardName } = match.groups;
-    const castIndex = state.stack.findIndex(c => c.name === cardName);
-    if (castIndex > -1) {
-        const castSpell = state.stack.splice(castIndex, 1)[0];
-        const isCreature = line.includes(" - Creature");
-        const cardId = cardIdMap.get(cardName.trim());
+    const isCreature = line.includes(" - Creature");
+    const cardId = cardIdMap.get(cardName.trim());
 
-        if (isCreature && cardId && state.players[castSpell.player]) {
-            state.players[castSpell.player].battlefield.push({ id: cardId, name: cardName });
-        } else if (!isCreature && !line.includes(" - Land")) {
-            if (state.players[castSpell.player]) {
-                const tempId = `spell-${cardName.trim()}-${Date.now()}`;
-                state.players[castSpell.player].graveyard.push({ id: tempId, name: cardName.trim() });
-            }
+    if (isCreature && cardId && state.activePlayer && state.players[state.activePlayer]) {
+        state.players[state.activePlayer].battlefield.push({ id: cardId, name: cardName });
+    } else if (!isCreature && !line.includes(" - Land")) {
+        if (state.activePlayer && state.players[state.activePlayer]) {
+            const tempId = `spell-${cardName.trim()}-${Date.now()}`;
+            state.players[state.activePlayer].graveyard.push({ id: tempId, name: cardName.trim() });
         }
     }
     return state;
@@ -203,7 +200,20 @@ function parseAttack(line: string, state: GameState): GameState | null {
     return state;
 }
 
+
 // --- Utility and Setup Functions ---
+function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Content: string): GameState {
+    const deck1Size = d1Content.split('\n').filter(line => line.trim() && !line.startsWith('[metadata]')).length;
+    const deck2Size = d2Content.split('\n').filter(line => line.trim() && !line.startsWith('[metadata]')).length;
+    
+    const state: GameState = {
+        turn: 0, activePlayer: "", phase: "Setup", players: {}
+    };
+    state.players[p1Name] = { name: p1Name, life: 20, handSize: 7, librarySize: deck1Size - 7, battlefield: [], graveyard: [], exile: [] };
+    state.players[p2Name] = { name: p2Name, life: 20, handSize: 7, librarySize: deck2Size - 7, battlefield: [], graveyard: [], exile: [] };
+    return state;
+}
+
 function buildCardIdMap(lines: string[]): Map<string, string> {
     const cardIdMap = new Map<string, string>();
     const regex = /(?<cardName>.+?) \((?<cardId>\d+)\)/;
@@ -225,7 +235,13 @@ function findPlayerNames(lines: string[], validTeamIds: string[]): { player1: st
     for (const line of lines) {
         const match = line.match(regex);
         if (match && match[1] && match[2]) {
-            return { player1: match[1].trim(), player2: match[2].trim() };
+            const p1 = match[1].trim();
+            const p2 = match[2].trim();
+            const p1IsValid = validTeamIds.some(id => p1.toLowerCase().includes(id.toLowerCase()));
+            const p2IsValid = validTeamIds.some(id => p2.toLowerCase().includes(id.toLowerCase()));
+            if(p1IsValid && p2IsValid) {
+                return { player1: p1, player2: p2 };
+            }
         }
     }
     return { player1: null, player2: null };

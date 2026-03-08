@@ -5,7 +5,7 @@ import * as fs from "fs/promises";
 import * as path from "path";
 import * as http from "http";
 import { createClient } from "@supabase/supabase-js";
-import { postProcessLog } from "./parser.js"; // We import the new post-processor
+import { postProcessLog } from "./parser.js"; 
 
 interface DeckInfo {
   filename: string;
@@ -21,7 +21,7 @@ interface StartMatchPayload {
 
 const APP_DIR = process.cwd();
 const FORGE_DECKS_DIR = path.join(APP_DIR, "decks", "constructed");
-const LOGS_DIR = path.join(APP_DIR, "logs"); // A new directory for raw logs
+const LOGS_DIR = path.join(APP_DIR, "logs");
 
 const supabaseUrl = process.env.SUPABASE_URL;
 const supabaseKey = process.env.SUPABASE_SERVICE_KEY;
@@ -112,6 +112,8 @@ async function startMatch(payload: StartMatchPayload) {
 
   const rawLogData: string[] = [];
   forgeProcess.stdout.on('data', (data) => {
+    // Log the raw data chunk immediately for debugging streams
+    console.log(`[FORGE_LOG_CHUNK]`, data.toString());
     rawLogData.push(data.toString());
   });
 
@@ -134,7 +136,7 @@ async function startMatch(payload: StartMatchPayload) {
         if (teamsError || !teamsData) throw new Error("Could not fetch team IDs for post-processing.");
         const validTeamIds = teamsData.map(t => t.id);
 
-        const { gameStates, winner } = postProcessLog(fullLog, validTeamIds, deck1.content, deck2.content);
+        const { gameStates, winner } = await postProcessLog(fullLog, validTeamIds, deck1.content, deck2.content, matchId);
 
         if (winner && gameStates.length > 0) {
           console.log(`[DB] Post-processing complete. Winner is ${winner}. Saving full game log...`);
