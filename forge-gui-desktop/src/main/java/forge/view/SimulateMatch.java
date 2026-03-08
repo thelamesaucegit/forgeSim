@@ -12,7 +12,6 @@ import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang3.time.StopWatch;
 
-// --- NEW: Import the GSON library ---
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
@@ -23,7 +22,6 @@ import forge.deck.io.DeckSerializer;
 import forge.game.Game;
 import forge.game.GameEndReason;
 import forge.game.GameLogEntry;
-// import forge.game.GameLogEntryType;
 import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.Match;
@@ -45,7 +43,6 @@ import forge.util.storage.IStorage;
 public class SimulateMatch {
 
     public static void simulate(String[] args) {
-        // We pass 'true' to tell the FModel that this is a simulation and not a GUI session.
         FModel.initialize(null, null, true);
         System.out.println("Simulation mode");
 
@@ -56,10 +53,8 @@ public class SimulateMatch {
 
         final Map<String, List<String>> params = new HashMap<String, List<String>>();
         List<String> options = null;
-        // Correctly parse command-line arguments, allowing multiple values for a single flag.
         for (int i = 1; i < args.length; i++) {
             final String a = args[i];
-
             if (a.charAt(0) == '-') {
                 if (a.length() < 2) {
                     System.err.println("Error at argument " + a);
@@ -67,7 +62,6 @@ public class SimulateMatch {
                     return;
                 }
                 String key = a.substring(1);
-                // Get the existing list for this flag, or create a new one if it's the first time.
                 options = params.computeIfAbsent(key, k -> new ArrayList<>());
             } else if (options != null) {
                 options.add(a);
@@ -86,12 +80,13 @@ public class SimulateMatch {
         if (params.containsKey("m")) {
             matchSize = Integer.parseInt(params.get("m").get(0));
         }
+        
+        boolean outputGamelog = !params.containsKey("q");
 
         GameType type = GameType.Constructed;
         if (params.containsKey("f")) {
             type = GameType.valueOf(WordUtil.capitalize(params.get("f").get(0)));
         }
-
         GameRules rules = new GameRules(type);
         rules.setAppliedVariants(EnumSet.of(type));
         if (matchSize != 0) {
@@ -99,7 +94,7 @@ public class SimulateMatch {
         }
 
         if (params.containsKey("t")) {
-            simulateTournament(params, rules);
+            simulateTournament(params, rules, outputGamelog);
             System.out.flush();
             return;
         }
@@ -122,7 +117,6 @@ public class SimulateMatch {
                     aiProfile = params.get("a").get(i - 1);
                 }
                 String playerName = TextUtil.concatNoSpace("Ai(", String.valueOf(i), ")-", d.getName());
-                // The player name used by the game engine should include the AI profile for clarity in logs
                 String fullPlayerName = playerName;
                 if (!aiProfile.isEmpty()) {
                     fullPlayerName = TextUtil.concatNoSpace(playerName, " (AI: ", aiProfile, ")");
@@ -134,7 +128,6 @@ public class SimulateMatch {
                 } else {
                     rp = new RegisteredPlayer(d);
                 }
-                // Use the full name for the player object
                 rp.setPlayer(GamePlayerUtil.createAiPlayer(fullPlayerName, i - 1, 0, null, aiProfile));
                 pp.add(rp);
                 i++;
@@ -153,12 +146,12 @@ public class SimulateMatch {
         if (matchSize != 0) {
             int iGame = 0;
             while (!mc.isMatchOver()) {
-                simulateSingleMatch(mc, iGame);
+                simulateSingleMatch(mc, iGame, outputGamelog);
                 iGame++;
             }
         } else {
             for (int iGame = 0; iGame < nGames; iGame++) {
-                simulateSingleMatch(mc, iGame);
+                simulateSingleMatch(mc, iGame, outputGamelog);
             }
         }
         System.out.flush();
@@ -169,13 +162,13 @@ public class SimulateMatch {
         System.out.println("\\t-d: One or more deck names or filenames, separated by spaces.");
         System.out.println("\\t-a: AI profiles for each deck, in corresponding order.");
         System.out.println("\\t-n: Number of games to play (defaults to 1).");
+        System.out.println("\\t-q: Quiet mode (suppresses full game log).");
     }
 
-    public static void simulateSingleMatch(final Match mc, int iGame) {
+    public static void simulateSingleMatch(final Match mc, int iGame, boolean outputGamelog) {
         final StopWatch sw = new StopWatch();
         sw.start();
 
-        // --- NEW: Initialize GSON for JSON conversion ---
         final Gson gson = new GsonBuilder().create();
 
         final Game g1 = mc.createGame();
@@ -197,16 +190,13 @@ public class SimulateMatch {
             }
         }
 
-        // We always get all log entries.
         List<GameLogEntry> log = g1.getGameLog().getLogEntries(null);
         Collections.reverse(log);
 
         for (GameLogEntry l : log) {
-            // --- FIX: Serialize the structured GameLogEntry object to JSON ---
             System.out.println(gson.toJson(l));
         }
 
-        // Print final game result as a distinct, easily parsable line
         if (g1.getOutcome().isDraw()) {
             System.out.printf("JSON_GAME_RESULT:{\"winner\":null,\"duration\":%d}%n", sw.getTime());
         } else {
@@ -214,7 +204,7 @@ public class SimulateMatch {
         }
     }
 
-    private static void simulateTournament(Map<String, List<String>> params, GameRules rules) {
+    private static void simulateTournament(Map<String, List<String>> params, GameRules rules, boolean outputGamelog) {
         String tournament = params.get("t").get(0);
         AbstractTournament tourney = null;
         int matchPlayers = params.containsKey("p") ? Integer.parseInt(params.get("p").get(0)) : 2;
@@ -324,7 +314,7 @@ public class SimulateMatch {
                 int iGame = 0;
                 while (!mc.isMatchOver()) {
                     try {
-                        simulateSingleMatch(mc, iGame);
+                        simulateSingleMatch(mc, iGame, outputGamelog);
                         iGame++;
                     } catch (Exception e) {
                         exceptions++;
