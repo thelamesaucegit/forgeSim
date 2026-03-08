@@ -68,10 +68,10 @@ export async function postProcessLog(
         updateState(parsePlayerDamage(line, currentState));
         updateState(parseCast(line, currentState));
         updateState(parseResolve(line, currentState, cardIdMap));
-        updateState(parseZoneChange(line, currentState)); // Keep for explicit removals like Exile
+        updateState(parseZoneChange(line, currentState));
         updateState(parseAttack(line, currentState, cardIdMap));
         updateState(parseLand(line, currentState));
-        updateState(parseCreatureDestroyed(line, currentState)); // New handler for creature death
+        updateState(parseCreatureDestroyed(line, currentState));
         
         if (stateChanged) {
             allGameStates.push(JSON.parse(JSON.stringify(currentState)));
@@ -111,7 +111,6 @@ const regexLand = /Land: (?<player>.+) played (?<cardName>.+) \((?<cardId>\d+)\)
 const regexCreatureDamage = /Damage: .* \((?<sourceId>\d+)\) deals \d+ .*damage to (?<targetName>.+?) \((?<targetId>\d+)\)/;
 const regexExile = /Exile (?<cardName>.+?) \((?<cardId>\d+)\)/;
 
-
 function parseTurn(line: string, state: GameState): GameState | null {
     const match = line.match(regexTurn);
     if (!match?.groups) return null;
@@ -119,8 +118,9 @@ function parseTurn(line: string, state: GameState): GameState | null {
     state.turn = parseInt(match.groups.turnNum, 10);
     state.activePlayer = player;
     if (state.turn > 1 && state.players[player]) {
-        state.players[player].librarySize--;
-        state.players[player].handSize++;
+        const activePlayer = state.players[player];
+        activePlayer.librarySize--;
+        activePlayer.handSize++;
     }
     return state;
 }
@@ -158,10 +158,10 @@ function parseResolve(line: string, state: GameState, cardIdMap: Map<string, str
     
     const { cardName } = match.groups;
     const cleanCardName = cardName.trim();
-    const isCreature = line.includes(" - Creature");
+    const isPermanent = line.includes(" - Creature") || line.includes(" - Artifact");
     const activePlayer = state.activePlayer;
 
-    if (isCreature && activePlayer && state.players[activePlayer]) {
+    if (isPermanent && activePlayer && state.players[activePlayer]) {
         const cardId = cardIdMap.get(cleanCardName) || `temp-${cleanCardName}-${Date.now()}`;
         state.players[activePlayer].battlefield.push({ id: cardId, name: cleanCardName });
     } else if (!line.includes(" - Land")) {
@@ -224,7 +224,7 @@ function parseLand(line: string, state: GameState): GameState | null {
     if (!match?.groups) return null;
     const { player, cardName, cardId } = match.groups;
     const trimmedPlayerName = player.trim();
-    if (state.players[trimmedPlayerName]) {
+    if(state.players[trimmedPlayerName]) {
         state.players[trimmedPlayerName].battlefield.push({ id: cardId, name: cardName });
     }
     return state;
@@ -234,8 +234,6 @@ function parseCreatureDestroyed(line: string, state: GameState): GameState | nul
     const match = line.match(regexCreatureDamage);
     if (!match?.groups) return null;
 
-    // This is a heuristic. It assumes a creature that is dealt damage dies.
-    // A more robust implementation would check against toughness from card data.
     const { targetId } = match.groups;
     let ownerName: string | null = null;
     let card: Card | undefined;
@@ -271,9 +269,7 @@ function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Co
     const deck1Size = countCards(d1Content);
     const deck2Size = countCards(d2Content);
     
-    const state: GameState = {
-        turn: 0, activePlayer: "", players: {}
-    };
+    const state: GameState = { turn: 0, activePlayer: "", players: {} };
     state.players[p1Name] = { name: p1Name, life: 20, handSize: 7, librarySize: deck1Size - 7, battlefield: [], graveyard: [], exile: [] };
     state.players[p2Name] = { name: p2Name, life: 20, handSize: 7, librarySize: deck2Size - 7, battlefield: [], graveyard: [], exile: [] };
     return state;
@@ -302,9 +298,7 @@ function findPlayerNames(lines: string[], validTeamIds: string[]): { player1: st
         if (match && match[1] && match[2]) {
             const p1 = match[1].trim();
             const p2 = match[2].trim();
-            const p1IsValid = validTeamIds.some(id => p1.toLowerCase().includes(id.toLowerCase()));
-            const p2IsValid = validTeamIds.some(id => p2.toLowerCase().includes(id.toLowerCase()));
-            if(p1IsValid && p2IsValid) {
+            if (validTeamIds.some(id => p1.toLowerCase().includes(id)) && validTeamIds.some(id => p2.toLowerCase().includes(id))) {
                 return { player1: p1, player2: p2 };
             }
         }
