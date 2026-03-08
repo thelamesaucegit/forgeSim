@@ -23,7 +23,7 @@ import forge.deck.io.DeckSerializer;
 import forge.game.Game;
 import forge.game.GameEndReason;
 import forge.game.GameLogEntry;
-import forge.game.GameLogEntryType;
+// import forge.game.GameLogEntryType;
 import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.Match;
