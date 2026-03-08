@@ -115,7 +115,10 @@ async function startMatch(payload: StartMatchPayload) {
     return; 
   }
 
-  let currentGameState: GameState = getInitialState();
+  const initialDeck1Size = deck1.content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
+  const initialDeck2Size = deck2.content.split('\n').filter(line => line.trim() && !line.startsWith('[')).length;
+  let currentGameState: GameState = getInitialState(initialDeck1Size, initialDeck2Size);
+  
   const allGameStates: GameState[] = [];
   const jarPath = path.join(APP_DIR, "forgeSim.jar");
   const commandArgs = [
@@ -131,11 +134,7 @@ async function startMatch(payload: StartMatchPayload) {
   });
 
   const processLine = (line: string) => {
-    // ---
-    // LOGGING RESTORED: This line is re-added to ensure we can see all raw output from the Forge process.
-    // ---
     console.log(`[FORGE_LOG] ${line}`);
-    
     if (line) {
       const newState = parseLogLine(line, currentGameState, validTeamIds);
       if (newState) {
