@@ -161,7 +161,8 @@ public class SimulateMatch {
         sw.start();
         final Game g1 = mc.createGame();
 
-        g1.getEventBus().register(new JsonGameListener());
+        // --- FIX: Use the correct method to subscribe our listener to the game's event bus ---
+        g1.subscribeToEvents(new JsonGameListener());
 
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
@@ -180,7 +181,8 @@ public class SimulateMatch {
                 g1.setGameOver(GameEndReason.Draw);
             }
         }
-
+        
+        // Output is now handled by JsonGameListener. This just prints the final result.
         if (g1.getOutcome().isDraw()) {
             System.out.printf("JSON_GAME_RESULT:{\"winner\":null,\"duration\":%d}%n", sw.getTime());
         } else {
