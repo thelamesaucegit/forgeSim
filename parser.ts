@@ -101,7 +101,8 @@ export async function postProcessLog(
 }
 
 // --- Helper function to parse the ZoneView string ---
-function parseZoneString(zoneStr: string): { player: string, zone: string } | null {
+// FIX: Corrected the return type to allow player to be null
+function parseZoneString(zoneStr: string): { player: string | null, zone: string } | null {
     const match = zoneStr.match(/ZoneView\[player=([^,]+), zoneType=([^\]]+)\]/);
     if (match && match[1] && match[2]) {
         // The player name can be 'null' for the stack
@@ -120,7 +121,6 @@ function applyJsonEvent(state: GameState, event: JsonEvent): boolean {
             if (event.turnNumber !== undefined && event.turnOwner?.name) {
                 state.turn = event.turnNumber;
                 state.activePlayer = event.turnOwner.name;
-                // Draw step is handled by its own ZONE_CHANGE event
                 stateChanged = true;
             }
             break;
@@ -140,20 +140,38 @@ function applyJsonEvent(state: GameState, event: JsonEvent): boolean {
             break;
 
         case 'ZONE_CHANGE':
-            if (!event.card || !event.from || !event.to) break;
+            const { card, from, to } = event;
+            if (!card || !from || !to) break;
 
-            const fromData = parseZoneString(event.from);
-            const toData = parseZoneString(event.to);
+            const fromData = parseZoneString(from);
+            const toData = parseZoneString(to);
             if (!fromData || !toData) break;
 
-            const cardIdStr = String(event.card.id);
+            const cardIdStr = String(card.id);
             let cardToMove: Card | undefined;
+            let fromPlayerName: string | null = null;
             
             // Find and remove the card from the source zone
             if (fromData.player && state.players[fromData.player]) {
-                const sourcePlayer = state.players[fromData.player];
+                fromPlayerName = fromData.player;
+            } else { // Fallback for cases where player is null (like the stack)
+                for (const pName in state.players) {
+                     // Check all zones of all players, which is inefficient but necessary for stack/global zones
+                     for (const zName in state.players[pName]) {
+                         const zone = (state.players[pName] as any)[zName];
+                         if(Array.isArray(zone) && zone.some((c: Card) => c.id === cardIdStr)) {
+                             fromPlayerName = pName;
+                             break;
+                         }
+                     }
+                     if(fromPlayerName) break;
+                }
+            }
+
+            if(fromPlayerName) {
+                const sourcePlayer = state.players[fromPlayerName];
                 const sourceZone = (sourcePlayer as any)[fromData.zone];
-                if (Array.isArray(sourceZone)) {
+                 if (Array.isArray(sourceZone)) {
                     const cardIndex = sourceZone.findIndex((c: Card) => c.id === cardIdStr);
                     if (cardIndex > -1) {
                         [cardToMove] = sourceZone.splice(cardIndex, 1);
@@ -168,8 +186,22 @@ function applyJsonEvent(state: GameState, event: JsonEvent): boolean {
                 const destZone = (destPlayer as any)[toData.zone];
                 if (Array.isArray(destZone)) {
                     destZone.push(cardToMove);
+                } else if(toData.zone !== 'stack') {
+                    // if dest is not a known zone, and not the stack, put it back where it came from
+                     const sourceZone = (state.players[fromPlayerName!] as any)[fromData.zone];
+                     sourceZone.push(cardToMove);
                 }
+            } else if (cardToMove && toData.zone === 'stack') {
+                // It moved to the stack, which we don't explicitly track on a player
+            } else if (cardToMove) {
+                 // Card moved to a zone without a player (e.g. exile), put it in the original owner's zone
+                 const originalOwner = state.players[fromPlayerName!];
+                 const destZone = (originalOwner as any)[toData.zone];
+                 if (Array.isArray(destZone)) {
+                    destZone.push(cardToMove);
+                 }
             }
+
 
             // Update hand/library sizes based on zone moves
             if (stateChanged) {
@@ -179,12 +211,21 @@ function applyJsonEvent(state: GameState, event: JsonEvent): boolean {
                  if (toData.zone === 'hand' && toData.player) state.players[toData.player].handSize++;
             }
             break;
+            
+        case 'LAND_PLAYED': // This might be redundant if ZONE_CHANGE is perfect, but good for safety
+             if (event.land && event.player?.name && state.players[event.player.name]) {
+                 const cardExists = state.players[event.player.name].battlefield.some(c => c.id === String(event.land!.id));
+                 if(!cardExists) {
+                    state.players[event.player.name].battlefield.push({ id: String(event.land.id), name: event.land.name });
+                    stateChanged = true;
+                 }
+             }
+             break;
     }
 
     return stateChanged;
 }
 
-// --- UTILITY AND SETUP FUNCTIONS ---
 function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Content: string): GameState {
     const countCards = (content: string): number => {
         return content.split('\n').reduce((count, line) => {
@@ -219,7 +260,7 @@ function findPlayerNamesFromRawLog(rawLog: string, validTeamIds: string[]): { pl
 }
 
 function findWinner(lines: string[], players: string[]): string | null {
-    for (const line of lines) { // Check from the start
+    for (const line of lines) {
         if (line.startsWith("JSON_GAME_RESULT:")) {
             try {
                 const result = JSON.parse(line.substring("JSON_GAME_RESULT:".length));
