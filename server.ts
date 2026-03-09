@@ -13,8 +13,15 @@ const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
 
 // --- INITIALIZATION ---
-const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY);
-console.log('[INIT] Supabase client initialized.');
+// FIX: Initialize the client for a trusted server-side environment.
+// This ensures the Realtime client authenticates correctly with the service key.
+const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
+    auth: {
+        persistSession: false,
+        autoRefreshToken: false,
+    }
+});
+console.log('[INIT] Supabase client initialized for server-side environment.');
 
 // Ensure required directories exist
 fs.mkdir(LOGS_DIR, { recursive: true });
@@ -25,7 +32,7 @@ async function getCardDictionary(deck1Content: string, deck2Content: string): Pr
     console.log('[DB_FETCH] Reading deck content to build card dictionary...');
     const cardDictionary = new Map<string, string>();
     const cardNameSet = new Set<string>();
-    const cardNameRegex = /^\d*\s*(.+)/; // More robust regex for deck lines
+    const cardNameRegex = /^\d*\s*(.+)/;
 
     const processContent = (content: string) => {
         content.split('\n').forEach(line => {
@@ -77,7 +84,6 @@ async function spawnMatchProcess(payload: any) {
     const deck2Path = path.join(DECKS_DIR, `${deck2Name}.dck`);
     
     try {
-        // --- CRITICAL STEP: Write decklists from DB to local files for Java process to use ---
         await fs.writeFile(deck1Path, deck1_list);
         await fs.writeFile(deck2Path, deck2_list);
         console.log(`[FILE_WRITE] Successfully wrote ${deck1Name}.dck and ${deck2Name}.dck to disk.`);
