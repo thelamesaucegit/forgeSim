@@ -2,10 +2,8 @@ package forge.view;
 
 import java.io.File;
 import java.util.ArrayList;
-// import java.util.Collections; // REMOVED - Unused import
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -13,16 +11,12 @@ import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang3.time.StopWatch;
 
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-
 import forge.LobbyPlayer;
 import forge.deck.Deck;
 import forge.deck.DeckGroup;
 import forge.deck.io.DeckSerializer;
 import forge.game.Game;
 import forge.game.GameEndReason;
-// import forge.game.GameLogEntry; // REMOVED - Unused import
 import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.Match;
@@ -187,7 +181,6 @@ public class SimulateMatch {
             }
         }
 
-        // The listener now handles all event output. This method only prints the final result.
         if (g1.getOutcome().isDraw()) {
             System.out.printf("JSON_GAME_RESULT:{\"winner\":null,\"duration\":%d}%n", sw.getTime());
         } else {
