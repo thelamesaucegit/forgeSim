@@ -10,7 +10,7 @@ COPY . .
 RUN mvn package -DskipTests --no-transfer-progress
 
 # ----------------- Stage 2: Build the TypeScript server code -----------------
-FROM node:20-bookworm-slim AS nodebuilder
+FROM node:22-bookworm-slim AS nodebuilder
 
 WORKDIR /app
 
