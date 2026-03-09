@@ -2,9 +2,10 @@ package forge.view;
 
 import java.io.File;
 import java.util.ArrayList;
-import java.util.Collections;
+// import java.util.Collections; // REMOVED - Unused import
 import java.util.EnumSet;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
@@ -12,13 +13,16 @@ import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang3.time.StopWatch;
 
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+
 import forge.LobbyPlayer;
 import forge.deck.Deck;
 import forge.deck.DeckGroup;
 import forge.deck.io.DeckSerializer;
 import forge.game.Game;
 import forge.game.GameEndReason;
-import forge.game.GameLogEntry;
+// import forge.game.GameLogEntry; // REMOVED - Unused import
 import forge.game.GameRules;
 import forge.game.GameType;
 import forge.game.Match;
@@ -39,7 +43,6 @@ import forge.util.storage.IStorage;
 
 public class SimulateMatch {
 
-    // The 'simulate' method and other helpers remain unchanged.
     public static void simulate(String[] args) {
         FModel.initialize(null, null, true);
         System.out.println("Simulation mode");
@@ -164,7 +167,6 @@ public class SimulateMatch {
         sw.start();
         final Game g1 = mc.createGame();
 
-        // --- NEW: Register our custom JSON listener to the game's event bus ---
         g1.getEventBus().register(new JsonGameListener());
 
         try {
@@ -185,8 +187,7 @@ public class SimulateMatch {
             }
         }
 
-        // The old logging is no longer needed. Our listener prints directly to System.out.
-        // We just print the final result.
+        // The listener now handles all event output. This method only prints the final result.
         if (g1.getOutcome().isDraw()) {
             System.out.printf("JSON_GAME_RESULT:{\"winner\":null,\"duration\":%d}%n", sw.getTime());
         } else {
@@ -195,7 +196,6 @@ public class SimulateMatch {
     }
 
     private static void simulateTournament(Map<String, List<String>> params, GameRules rules, boolean outputGamelog) {
-        // This method remains unchanged.
         String tournament = params.get("t").get(0);
         AbstractTournament tourney = null;
         int matchPlayers = params.containsKey("p") ? Integer.parseInt(params.get("p").get(0)) : 2;
@@ -333,7 +333,7 @@ public class SimulateMatch {
         }
         tourney.outputTournamentResults();
     }
-
+    
     private static Deck deckFromCommandLineParameter(String deckname, GameType type) {
         int dotpos = deckname.lastIndexOf('.');
         if (dotpos > 0 && dotpos == deckname.length() - 4) {
