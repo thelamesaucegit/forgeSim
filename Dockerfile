@@ -5,7 +5,7 @@ FROM maven:3.8-openjdk-17 AS javabuilder
 WORKDIR /usr/src/app
 
 # Clone your repository
-RUN git clone https://github.com/thelamesaucegit/forgeSim.git .
+COPY . .
 
 # A simple, standard Maven build.
 RUN mvn package -DskipTests
