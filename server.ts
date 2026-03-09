@@ -12,22 +12,30 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
 
+// --- ENHANCED DIAGNOSTIC LOGGER ---
+const realtimeLogger = (level: string, message: string, data: any) => {
+    console.log(`[REALTIME_CLIENT] Level: ${level}, Message: ${message}`, data ? `Data: ${JSON.stringify(data)}` : '');
+};
+
 // --- INITIALIZATION ---
-// FIX: Initialize the client for a trusted server-side environment.
-// This ensures the Realtime client authenticates correctly with the service key.
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: {
         persistSession: false,
         autoRefreshToken: false,
+    },
+    // --- FIX: Add a custom logger to get detailed connection information ---
+    realtime: {
+        logger: realtimeLogger,
     }
 });
-console.log('[INIT] Supabase client initialized for server-side environment.');
+console.log('[INIT] Supabase client initialized with REALTIME diagnostics.');
+
+// ... (The rest of the file remains the same) ...
 
 // Ensure required directories exist
 fs.mkdir(LOGS_DIR, { recursive: true });
 fs.mkdir(DECKS_DIR, { recursive: true });
 
-// --- HELPER: FETCH CARD DATA FROM SUPABASE ---
 async function getCardDictionary(deck1Content: string, deck2Content: string): Promise<Map<string, string>> {
     console.log('[DB_FETCH] Reading deck content to build card dictionary...');
     const cardDictionary = new Map<string, string>();
@@ -72,8 +80,6 @@ async function getCardDictionary(deck1Content: string, deck2Content: string): Pr
     return cardDictionary;
 }
 
-
-// --- MAIN SIMULATION PROCESS ---
 async function spawnMatchProcess(payload: any) {
     const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, profile1, profile2 } = payload.new;
     console.log(`[MATCH_RECEIVED] New match received: ${matchId}`);
@@ -137,24 +143,19 @@ async function spawnMatchProcess(payload: any) {
     }
 }
 
-// --- SUPABASE SUBSCRIPTION ---
 const channel: RealtimeChannel = supabase
     .channel('sim_matches_insert')
     .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sim_matches' }, (payload) => {
         spawnMatchProcess(payload);
     })
     .subscribe((status, err) => {
-    if (status === 'SUBSCRIBED') {
-        console.log('[SUPABASE_SUB] Successfully subscribed to sim_matches inserts!');
-    } else {
-        // Log the full error object for more details
-        console.error('[SUPABASE_SUB] Subscription failed. Status:', status, 'Error:', JSON.stringify(err, null, 2));
-    }
-});
+        if (status === 'SUBSCRIBED') {
+            console.log('[SUPABASE_SUB] Successfully subscribed to sim_matches inserts!');
+        } else {
+            console.error('[SUPABASE_SUB] Subscription failed. Status:', status, 'Error:', JSON.stringify(err, null, 2));
+        }
+    });
 
-
-
-// --- HEALTH CHECK SERVER ---
 http.createServer((req, res) => {
     if (req.method === 'GET' && req.url === '/health') {
         res.writeHead(200);
