@@ -7,10 +7,8 @@ import * as path from "path";
 export interface Card {
   id: string;
   name: string;
+  cardType: string; // Enriched from the dictionary
   isTapped?: boolean;
-  isAttacking?: boolean;
-  isBlocked?: boolean;
-  cardType?: string;
 }
 
 export interface PlayerState {
@@ -61,7 +59,7 @@ export async function postProcessLog(
 
     const { player1, player2 } = findPlayerNamesFromRawLog(rawLog, validTeamIds);
     if (!player1 || !player2) {
-        console.error("[PARSER_FATAL] Could not identify both players in the log.");
+        console.error(`[PARSER_FATAL] Could not identify both players in the log. Valid IDs: ${validTeamIds.join(', ')}`);
         return { gameStates: [], winner: null };
     }
 
@@ -98,8 +96,6 @@ export async function postProcessLog(
     return { gameStates: allGameStates, winner };
 }
 
-
-// --- Helper function to parse the ZoneView string ---
 function parseZoneString(zoneStr: string): { player: string | null, zone: string } | null {
     const match = zoneStr.match(/ZoneView\[player(?:\\u003d|=)([^,]+), zoneType(?:\\u003d|=)([^\]]+)\]/);
     if (match && match[1] && match[2]) {
@@ -109,7 +105,6 @@ function parseZoneString(zoneStr: string): { player: string | null, zone: string
     return null;
 }
 
-// --- Event Application Logic ---
 function applyJsonEvent(state: GameState, event: JsonEvent, cardDictionary: Map<string, string>): void {
     if (!event.type) return;
 
@@ -134,25 +129,22 @@ function applyJsonEvent(state: GameState, event: JsonEvent, cardDictionary: Map<
             break;
 
         case 'ZONE_CHANGE':
-            const { card, from, to } = event;
-            if (!card || !from || !to) break;
+            const cardData = event.card || event.land; // Handle both spell and land events
+            if (!cardData || !event.from || !event.to) break;
 
-            const fromData = parseZoneString(from);
-            const toData = parseZoneString(to);
+            const fromData = parseZoneString(event.from);
+            const toData = parseZoneString(event.to);
             if (!fromData || !toData) break;
 
-            const cardIdStr = String(card.id);
-            const cardType = cardDictionary.get(card.name);
-            const cardToMove: Card = { id: cardIdStr, name: card.name, cardType };
-            
-            let cardFoundAndRemoved = false;
-            let fromPlayer: PlayerState | null = null;
-            if (fromData.player && state.players[fromData.player]) {
-                fromPlayer = state.players[fromData.player];
-            }
+            const cardIdStr = String(cardData.id);
+            const cardType = cardDictionary.get(cardData.name) || 'Unknown';
+            const cardToMove: Card = { id: cardIdStr, name: cardData.name, cardType };
 
-            if (fromData.zone === 'library' && fromPlayer) {
-                fromPlayer.librarySize--;
+            let cardFoundAndRemoved = false;
+            let sourcePlayerName: string | null = fromData.player;
+
+            if (fromData.zone === 'library' && sourcePlayerName && state.players[sourcePlayerName]) {
+                state.players[sourcePlayerName].librarySize--;
                 cardFoundAndRemoved = true;
             } else if (fromData.zone === 'stack') {
                 const stackIndex = state.stack.findIndex(c => c.id === cardIdStr);
@@ -160,28 +152,23 @@ function applyJsonEvent(state: GameState, event: JsonEvent, cardDictionary: Map<
                     state.stack.splice(stackIndex, 1);
                     cardFoundAndRemoved = true;
                 }
-            } else if (fromPlayer) {
-                const sourceZone = (fromPlayer as any)[fromData.zone];
+            } else if (sourcePlayerName && state.players[sourcePlayerName]) {
+                const sourceZone = (state.players[sourcePlayerName] as any)[fromData.zone];
                 if (Array.isArray(sourceZone)) {
-                    const cardIndex = sourceZone.findIndex(c => c.id === cardIdStr);
+                    const cardIndex = sourceZone.findIndex((c: Card) => c.id === cardIdStr);
                     if (cardIndex > -1) {
                         sourceZone.splice(cardIndex, 1);
                         cardFoundAndRemoved = true;
                     }
                 }
             }
-            
-            if (!cardFoundAndRemoved) return;
 
-            let toPlayer: PlayerState | null = null;
-            if (toData.player && state.players[toData.player]) {
-                toPlayer = state.players[toData.player];
-            }
+            if (!cardFoundAndRemoved) return;
 
             if (toData.zone === 'stack') {
                 state.stack.push(cardToMove);
-            } else if (toPlayer) {
-                const destZone = (toPlayer as any)[toData.zone];
+            } else if (toData.player && state.players[toData.player]) {
+                const destZone = (state.players[toData.player] as any)[toData.zone];
                 if (Array.isArray(destZone)) {
                     destZone.push(cardToMove);
                 }
@@ -190,22 +177,18 @@ function applyJsonEvent(state: GameState, event: JsonEvent, cardDictionary: Map<
     }
 }
 
-// --- UTILITY FUNCTIONS ---
 function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Content: string): GameState {
     const countCards = (content: string): number => {
         return content.split('\n').reduce((count, line) => {
             const trimmed = line.trim();
-            if (trimmed && !trimmed.startsWith('[') && trimmed.match(/^\d+\s+.+/)) {
-                const quantityMatch = trimmed.match(/^(\d+)\s/);
-                return count + (quantityMatch ? parseInt(quantityMatch[1], 10) : 0);
-            }
-            return count;
+            if (trimmed.startsWith('[') || !trimmed) return count;
+            const quantityMatch = trimmed.match(/^(\d+)\s/);
+            return count + (quantityMatch ? parseInt(quantityMatch[1], 10) : 1);
         }, 0);
     };
     const deck1Size = countCards(d1Content);
     const deck2Size = countCards(d2Content);
     
-    // FIX: Initialize with hand as an empty array, not handSize
     return {
         turn: 0,
         activePlayer: "",
@@ -221,11 +204,7 @@ function findPlayerNamesFromRawLog(rawLog: string, validTeamIds: string[]): { pl
     const regex = /^(Ai\(\d+\)-.*? \(AI: .*?\)) vs (Ai\(\d+\)-.*? \(AI: .*?\))/m;
     const match = rawLog.match(regex);
     if (match && match[1] && match[2]) {
-        const p1 = match[1].trim();
-        const p2 = match[2].trim();
-        if (validTeamIds.some(id => p1.toLowerCase().includes(id.toLowerCase())) && validTeamIds.some(id => p2.toLowerCase().includes(id.toLowerCase()))) {
-            return { player1: p1, player2: p2 };
-        }
+        return { player1: match[1].trim(), player2: match[2].trim() };
     }
     return { player1: null, player2: null };
 }
@@ -234,7 +213,7 @@ function findWinner(lines: string[], players: string[]): string | null {
     for (const line of lines) {
         if (line.startsWith("JSON_GAME_RESULT:")) {
             try {
-                const jsonStr = line.substring("JSON_GAME_RESULT:".length).replace(/\\n/g, '');
+                const jsonStr = line.substring("JSON_GAME_RESULT:".length).replace(/\r?\n|\r/g, '');
                 const result = JSON.parse(jsonStr);
                 if (result.winner && players.includes(result.winner)) {
                     return result.winner;
