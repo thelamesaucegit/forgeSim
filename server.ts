@@ -5,6 +5,7 @@ import * as http from 'http';
 import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import { postProcessLog } from './parser.js';
 import { processReplay } from './ReplayProcessor.js';
+import { WebSocket } from 'ws'; // Import the 'ws' library
 
 // --- CONFIGURATION ---
 const SUPABASE_URL = process.env.SUPABASE_URL!;
@@ -12,25 +13,18 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
 
-// --- ENHANCED DIAGNOSTIC LOGGER ---
-const realtimeLogger = (level: string, message: string, data: any) => {
-    console.log(`[REALTIME_CLIENT] Level: ${level}, Message: ${message}`, data ? `Data: ${JSON.stringify(data)}` : '');
-};
-
 // --- INITIALIZATION ---
+// FIX: Explicitly set the WebSocket transport to work around Node.js v20 issues.
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: {
         persistSession: false,
         autoRefreshToken: false,
     },
-    // --- FIX: Add a custom logger to get detailed connection information ---
     realtime: {
-        logger: realtimeLogger,
+        transport: WebSocket,
     }
 });
-console.log('[INIT] Supabase client initialized with REALTIME diagnostics.');
-
-// ... (The rest of the file remains the same) ...
+console.log('[INIT] Supabase client initialized with explicit WebSocket transport.');
 
 // Ensure required directories exist
 fs.mkdir(LOGS_DIR, { recursive: true });
