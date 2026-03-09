@@ -1,4 +1,3 @@
-// FIX: Added .js extension to the import path for ES Module compatibility
 import { GameState } from './parser.js';
 
 /**
@@ -40,7 +39,7 @@ export function processReplay(rawGameStates: GameState[]): GameState[] {
 
         // Add a "hold" frame if a significant event occurred
         if (hasSignificantEvent(prev, current)) {
-            // Duplicate the frame 2 times to make it hold for a total of 3 frames
+            // Duplicate the frame to make it hold
             finalPacedReplay.push(JSON.parse(JSON.stringify(current)));
             finalPacedReplay.push(JSON.parse(JSON.stringify(current)));
         }
@@ -51,11 +50,9 @@ export function processReplay(rawGameStates: GameState[]): GameState[] {
 
 /**
  * Compares two game states to see if a visually significant change has occurred.
- * This is used to "debounce" the raw event stream.
+ * This is used to "debounce" the raw event stream. It checks all zones and life totals.
  */
 function isVisuallyDifferent(prevState: GameState, currState: GameState): boolean {
-    // Simple string comparison is fast and effective for this purpose.
-    // We only care about the player data, which contains all the visual zones.
     return JSON.stringify(prevState.players) !== JSON.stringify(currState.players);
 }
 
@@ -78,6 +75,15 @@ function hasSignificantEvent(prevState: GameState | null, currState: GameState):
         const prevBattlefield = prevState.players[playerName].battlefield;
         const currBattlefield = currState.players[playerName].battlefield;
         if (prevBattlefield.length !== currBattlefield.length) {
+            return true;
+        }
+    }
+    
+    // Check for cards entering the graveyard
+    for (const playerName in currState.players) {
+        const prevGraveyard = prevState.players[playerName].graveyard;
+        const currGraveyard = currState.players[playerName].graveyard;
+        if (prevGraveyard.length !== currGraveyard.length) {
             return true;
         }
     }
