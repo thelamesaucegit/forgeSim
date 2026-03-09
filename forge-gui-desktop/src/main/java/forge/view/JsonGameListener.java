@@ -6,7 +6,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
-import com.google.common.collect.Multimap;
+// import com.google.common.collect.Multimap; // REMOVED - Unused import
 import com.google.common.eventbus.Subscribe;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
@@ -79,8 +79,6 @@ public class JsonGameListener {
             dto.put("card", getCardDto(event.card()));
             dto.put("from", event.from() != null ? event.from().toString() : null);
             dto.put("to", event.to() != null ? event.to().toString() : null);
-            // The owner of the card is implicitly the player whose zone it is in.
-            // We can determine this in the parser based on the 'from' zone.
             return dto;
         }
 
