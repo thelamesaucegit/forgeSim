@@ -144,12 +144,14 @@ const channel: RealtimeChannel = supabase
         spawnMatchProcess(payload);
     })
     .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-            console.log('[SUPABASE_SUB] Successfully subscribed to sim_matches inserts!');
-        } else {
-            console.error('[SUPABASE_SUB] Subscription failed:', err);
-        }
-    });
+    if (status === 'SUBSCRIBED') {
+        console.log('[SUPABASE_SUB] Successfully subscribed to sim_matches inserts!');
+    } else {
+        // Log the full error object for more details
+        console.error('[SUPABASE_SUB] Subscription failed. Status:', status, 'Error:', JSON.stringify(err, null, 2));
+    }
+});
+
 
 
 // --- HEALTH CHECK SERVER ---
