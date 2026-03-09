@@ -1,16 +1,18 @@
 package forge.view;
 
-import java.util.ArrayList; // FIX: Added missing import
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
-import java.util.List; // FIX: Added missing import
+import java.util.List;
 import java.util.Map;
 
+import com.google.common.collect.Multimap;
 import com.google.common.eventbus.Subscribe;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import forge.game.GameEntityView;
-import forge.game.card.CardView; // FIX: Added missing import
+import forge.game.card.CardView;
 import forge.game.event.*;
 
 public class JsonGameListener {
@@ -18,15 +20,22 @@ public class JsonGameListener {
 
     @Subscribe
     public void recordEvent(GameEvent event) {
+        // The visit method will return a Map<String, Object> if it's an event we handle
         Map<String, Object> dto = event.visit(new JsonEventVisitor());
         
         if (dto != null) {
+            // Prepend a specific string to make these lines easy to find and parse
             System.out.println("JSON_EVENT:" + gson.toJson(dto));
         }
     }
 
+    /**
+     * An implementation of IGameEventVisitor that transforms game events
+     * into simple, serializable Maps (DTOs) for JSON output.
+     */
     private static class JsonEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
 
+        // Helper to flatten a card view into a simple map
         private Map<String, Object> getCardDto(GameEntityView card) {
             if (card == null) { return null; }
             Map<String, Object> cardDto = new LinkedHashMap<>();
@@ -35,6 +44,7 @@ public class JsonGameListener {
             return cardDto;
         }
         
+        // Helper to flatten a player view into a simple map
         private Map<String, Object> getPlayerDto(GameEntityView player) {
             if (player == null) { return null; }
             Map<String, Object> playerDto = new LinkedHashMap<>();
@@ -42,6 +52,8 @@ public class JsonGameListener {
             return playerDto;
         }
 
+        // --- Event Visitor Implementations ---
+        
         @Override
         public Map<String, Object> visit(GameEventTurnBegan event) {
             Map<String, Object> dto = new LinkedHashMap<>();
@@ -67,6 +79,8 @@ public class JsonGameListener {
             dto.put("card", getCardDto(event.card()));
             dto.put("from", event.from() != null ? event.from().toString() : null);
             dto.put("to", event.to() != null ? event.to().toString() : null);
+            // The owner of the card is implicitly the player whose zone it is in.
+            // We can determine this in the parser based on the 'from' zone.
             return dto;
         }
 
@@ -123,7 +137,7 @@ public class JsonGameListener {
             dto.put("player", getPlayerDto(event.player()));
             
             Map<String, List<Map<String, Object>>> attacks = new LinkedHashMap<>();
-            for (Map.Entry<GameEntityView, java.util.Collection<CardView>> entry : event.attackersMap().asMap().entrySet()) {
+            for (Map.Entry<GameEntityView, Collection<CardView>> entry : event.attackersMap().asMap().entrySet()) {
                 List<Map<String, Object>> attackerList = new ArrayList<>();
                 for (CardView attacker : entry.getValue()) {
                     attackerList.add(getCardDto(attacker));
