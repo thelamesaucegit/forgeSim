@@ -39,7 +39,7 @@ interface JsonEvent {
     phase?: string;
     card?: { id: number, name: string };
     land?: { id: number, name: string };
-    from?: string;
+    from?: string; // e.g., "ZoneView[player=p1, zoneType=Library]"
     to?: string;
     amount?: number;
     isCombat?: boolean;
@@ -88,7 +88,6 @@ export async function postProcessLog(
        allGameStates[allGameStates.length - 1].winner = winner;
     }
 
-    // Diagnostic step remains
     try {
         const turnsToLog = allGameStates.filter(gs => gs.turn <= 4);
         const debugFilePath = path.join(LOGS_DIR, `${matchId}-debug-turns.json`);
@@ -101,9 +100,19 @@ export async function postProcessLog(
     return { gameStates: allGameStates, winner };
 }
 
+// --- Helper function to parse the ZoneView string ---
+function parseZoneString(zoneStr: string): { player: string, zone: string } | null {
+    const match = zoneStr.match(/ZoneView\[player=([^,]+), zoneType=([^\]]+)\]/);
+    if (match && match[1] && match[2]) {
+        // The player name can be 'null' for the stack
+        const player = match[1] === 'null' ? null : match[1];
+        return { player, zone: match[2].toLowerCase() };
+    }
+    return null;
+}
+
 // --- The New Core Logic: Applying a structured event ---
 function applyJsonEvent(state: GameState, event: JsonEvent): boolean {
-    if (!event.type) return false;
     let stateChanged = false;
 
     switch(event.type) {
@@ -111,10 +120,7 @@ function applyJsonEvent(state: GameState, event: JsonEvent): boolean {
             if (event.turnNumber !== undefined && event.turnOwner?.name) {
                 state.turn = event.turnNumber;
                 state.activePlayer = event.turnOwner.name;
-                if (state.turn > 1 && state.players[state.activePlayer]) {
-                    state.players[state.activePlayer].librarySize--;
-                    state.players[state.activePlayer].handSize++;
-                }
+                // Draw step is handled by its own ZONE_CHANGE event
                 stateChanged = true;
             }
             break;
@@ -134,43 +140,45 @@ function applyJsonEvent(state: GameState, event: JsonEvent): boolean {
             break;
 
         case 'ZONE_CHANGE':
-            const { card, from, to } = event;
-            if (!card || !from || !to) break;
+            if (!event.card || !event.from || !event.to) break;
 
-            const cardIdStr = String(card.id);
+            const fromData = parseZoneString(event.from);
+            const toData = parseZoneString(event.to);
+            if (!fromData || !toData) break;
+
+            const cardIdStr = String(event.card.id);
+            let cardToMove: Card | undefined;
             
-            for (const pName in state.players) {
-                const player = state.players[pName];
-                const fromZone = (player as any)[from.toLowerCase()];
-                const toZone = (player as any)[to.toLowerCase()];
-
-                if (Array.isArray(fromZone)) {
-                    const cardIndex = fromZone.findIndex((c: Card) => c.id === cardIdStr);
+            // Find and remove the card from the source zone
+            if (fromData.player && state.players[fromData.player]) {
+                const sourcePlayer = state.players[fromData.player];
+                const sourceZone = (sourcePlayer as any)[fromData.zone];
+                if (Array.isArray(sourceZone)) {
+                    const cardIndex = sourceZone.findIndex((c: Card) => c.id === cardIdStr);
                     if (cardIndex > -1) {
-                        const [movedCard] = fromZone.splice(cardIndex, 1);
-                        if (Array.isArray(toZone)) {
-                            toZone.push(movedCard);
-                            stateChanged = true;
-                        }
-                        break; 
+                        [cardToMove] = sourceZone.splice(cardIndex, 1);
+                        stateChanged = true;
                     }
                 }
             }
-            break;
             
-        case 'LAND_PLAYED':
-             if (event.land && event.player?.name && state.players[event.player.name]) {
-                 state.players[event.player.name].battlefield.push({ id: String(event.land.id), name: event.land.name });
-                 stateChanged = true;
-             }
-             break;
+            // Add the card to the destination zone
+            if (cardToMove && toData.player && state.players[toData.player]) {
+                const destPlayer = state.players[toData.player];
+                const destZone = (destPlayer as any)[toData.zone];
+                if (Array.isArray(destZone)) {
+                    destZone.push(cardToMove);
+                }
+            }
 
-        case 'SPELL_CAST':
-             if (event.player?.name && state.players[event.player.name]) {
-                 state.players[event.player.name].handSize--;
-                 stateChanged = true;
-             }
-             break;
+            // Update hand/library sizes based on zone moves
+            if (stateChanged) {
+                 if (fromData.zone === 'library' && fromData.player) state.players[fromData.player].librarySize--;
+                 if (toData.zone === 'library' && toData.player) state.players[toData.player].librarySize++;
+                 if (fromData.zone === 'hand' && fromData.player) state.players[fromData.player].handSize--;
+                 if (toData.zone === 'hand' && toData.player) state.players[toData.player].handSize++;
+            }
+            break;
     }
 
     return stateChanged;
@@ -211,7 +219,7 @@ function findPlayerNamesFromRawLog(rawLog: string, validTeamIds: string[]): { pl
 }
 
 function findWinner(lines: string[], players: string[]): string | null {
-    for (const line of lines.slice().reverse()) {
+    for (const line of lines) { // Check from the start
         if (line.startsWith("JSON_GAME_RESULT:")) {
             try {
                 const result = JSON.parse(line.substring("JSON_GAME_RESULT:".length));
