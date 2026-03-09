@@ -4,18 +4,17 @@ import * as fs from "fs/promises";
 import * as path from "path";
 
 // --- TYPE DEFINITIONS ---
-// These are the core data structures used throughout the replay system.
 export interface Card {
   id: string;
   name: string;
   isTapped?: boolean;
   isAttacking?: boolean;
   isBlocked?: boolean;
-  cardType?: string; // To be enriched by the ReplayProcessor
+  cardType?: string;
 }
 
 export interface PlayerState {
-  name:string;
+  name: string;
   life: number;
   hand: Card[];
   librarySize: number;
@@ -30,19 +29,17 @@ export interface GameState {
   players: Record<string, PlayerState>;
   winner?: string;
   phase?: string;
-  // A temporary zone for visual representation of spells being cast.
   stack: Card[]; 
 }
 
-// This interface mirrors the structure of the JSON DTO we now get from Java
 interface JsonEvent {
     type: string;
     turnNumber?: number;
     turnOwner?: { name: string };
     player?: { name: string };
     phase?: string;
-    card?: { id: number; name: string };
-    land?: { id: number; name: string };
+    card?: { id: number, name: string };
+    land?: { id: number, name: string };
     from?: string;
     to?: string;
     amount?: number;
@@ -56,7 +53,7 @@ export async function postProcessLog(
     deck1Content: string, 
     deck2Content: string,
     matchId: string,
-    cardDictionary: Map<string, string> // The crucial new argument from server.ts
+    cardDictionary: Map<string, string>
 ): Promise<{ gameStates: GameState[], winner: string | null }> {
 
     const lines = rawLog.split('\n');
@@ -72,8 +69,6 @@ export async function postProcessLog(
     let currentState = JSON.parse(JSON.stringify(initialState));
     const allGameStates: GameState[] = [JSON.parse(JSON.stringify(initialState))];
     
-    // The parser's job is just to create a raw state for every single event.
-    // The ReplayProcessor will handle filtering and pacing later.
     for (const line of lines) {
         if (line.startsWith("JSON_EVENT:")) {
             try {
@@ -82,7 +77,7 @@ export async function postProcessLog(
                 applyJsonEvent(currentState, event, cardDictionary);
                 allGameStates.push(JSON.parse(JSON.stringify(currentState)));
             } catch (e) {
-                // Non-JSON lines or parse errors are ignored
+                // Ignore errors
             }
         }
     }
@@ -92,7 +87,6 @@ export async function postProcessLog(
        allGameStates[allGameStates.length - 1].winner = winner;
     }
 
-    // This debug file now represents the *raw, unfiltered* event stream.
     try {
         const debugFilePath = path.join(LOGS_DIR, `${matchId}-debug-raw-states.json`);
         await fs.writeFile(debugFilePath, JSON.stringify(allGameStates, null, 2));
@@ -103,6 +97,7 @@ export async function postProcessLog(
 
     return { gameStates: allGameStates, winner };
 }
+
 
 // --- Helper function to parse the ZoneView string ---
 function parseZoneString(zoneStr: string): { player: string | null, zone: string } | null {
@@ -149,43 +144,46 @@ function applyJsonEvent(state: GameState, event: JsonEvent, cardDictionary: Map<
             const cardIdStr = String(card.id);
             const cardType = cardDictionary.get(card.name);
             const cardToMove: Card = { id: cardIdStr, name: card.name, cardType };
-
-            // Find and remove the card from its source zone
+            
             let cardFoundAndRemoved = false;
-            if (fromData.zone === 'library') {
-                 // We don't track library cards, just decrement the count.
-                 if(fromData.player && state.players[fromData.player]) {
-                    state.players[fromData.player].librarySize--;
-                    cardFoundAndRemoved = true;
-                 }
+            let fromPlayer: PlayerState | null = null;
+            if (fromData.player && state.players[fromData.player]) {
+                fromPlayer = state.players[fromData.player];
+            }
+
+            if (fromData.zone === 'library' && fromPlayer) {
+                fromPlayer.librarySize--;
+                cardFoundAndRemoved = true;
             } else if (fromData.zone === 'stack') {
                 const stackIndex = state.stack.findIndex(c => c.id === cardIdStr);
                 if (stackIndex > -1) {
                     state.stack.splice(stackIndex, 1);
                     cardFoundAndRemoved = true;
                 }
-            } else if (fromData.player && state.players[fromData.player]) {
-                const sourceZone = (state.players[fromData.player] as any)[fromData.zone];
+            } else if (fromPlayer) {
+                const sourceZone = (fromPlayer as any)[fromData.zone];
                 if (Array.isArray(sourceZone)) {
                     const cardIndex = sourceZone.findIndex(c => c.id === cardIdStr);
                     if (cardIndex > -1) {
                         sourceZone.splice(cardIndex, 1);
-                        if (fromData.zone === 'hand') state.players[fromData.player].handSize--;
                         cardFoundAndRemoved = true;
                     }
                 }
             }
-
+            
             if (!cardFoundAndRemoved) return;
 
-            // Add the card to its destination zone
+            let toPlayer: PlayerState | null = null;
+            if (toData.player && state.players[toData.player]) {
+                toPlayer = state.players[toData.player];
+            }
+
             if (toData.zone === 'stack') {
                 state.stack.push(cardToMove);
-            } else if (toData.player && state.players[toData.player]) {
-                const destZone = (state.players[toData.player] as any)[toData.zone];
+            } else if (toPlayer) {
+                const destZone = (toPlayer as any)[toData.zone];
                 if (Array.isArray(destZone)) {
                     destZone.push(cardToMove);
-                    if (toData.zone === 'hand') state.players[toData.player].handSize++;
                 }
             }
             break;
@@ -207,6 +205,7 @@ function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Co
     const deck1Size = countCards(d1Content);
     const deck2Size = countCards(d2Content);
     
+    // FIX: Initialize with hand as an empty array, not handSize
     return {
         turn: 0,
         activePlayer: "",
