@@ -3,8 +3,9 @@ import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as http from 'http';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
-import { postProcessLog } from './parser';
-import { processReplay } from './ReplayProcessor'; // New import for the final step
+// FIX: Added .js extension for ES Module compatibility
+import { postProcessLog } from './parser.js'; 
+import { processReplay } from './ReplayProcessor.js'; 
 
 // --- CONFIGURATION ---
 const SUPABASE_URL = process.env.SUPABASE_URL!;
@@ -83,7 +84,6 @@ async function spawnMatchProcess(
     const deck1Path = path.join(DECKS_DIR, `${deck1}.dck`);
     const deck2Path = path.join(DECKS_DIR, `${deck2}.dck`);
 
-    // STEP 1: Fetch all required card data from Supabase *before* simulation.
     const cardDictionary = await getCardDictionary(deck1Path, deck2Path);
 
     const child = spawn('java', [
@@ -127,14 +127,13 @@ async function spawnMatchProcess(
             const deck1Content = await fs.readFile(deck1Path, 'utf-8');
             const deck2Content = await fs.readFile(deck2Path, 'utf-8');
 
-            // STEP 2: Generate the raw, unfiltered game states using the parser.
             const rawGameStates = await postProcessLog(
                 rawLog,
                 [deck1, deck2],
                 deck1Content,
                 deck2Content,
                 matchId,
-                cardDictionary // Pass the card dictionary to the parser.
+                cardDictionary
             );
 
             if (!rawGameStates.winner) {
@@ -142,10 +141,8 @@ async function spawnMatchProcess(
                 return;
             }
 
-            // STEP 3: Process the raw states into a clean, paced replay.
             const finalReplay = processReplay(rawGameStates.gameStates);
 
-            // STEP 4: Save the final, polished replay to the database.
             const { error: dbError } = await supabase
                 .from('matches')
                 .update({ winner: rawGameStates.winner, game_log: finalReplay })
@@ -179,8 +176,6 @@ server.listen(PORT, () => {
     console.log(`[HEALTH_CHECK] HTTP server listening on port ${PORT} for health checks.`);
 });
 
-// Example of how to call the function
-// You would replace this with your actual trigger (e.g., a Supabase subscription)
 spawnMatchProcess(
     'test-match-' + Date.now(),
     'shards', 'BerserkerHorde',
