@@ -31,22 +31,19 @@ export interface GameState {
 }
 
 // This interface mirrors the structure of the JSON DTO we now get from Java
-interface GameLogEntry {
+interface JsonEvent {
     type: string;
-    message: string;
-    player?: string;
-    card?: {
-        id: number;
-        name: string;
-    };
-    value?: number;
-    params?: {
-        card?: { id: number, name: string };
-        fromZone?: string;
-        toZone?: string;
-        player?: string;
-        [key: string]: any; // Allow other params
-    }
+    turnNumber?: number;
+    turnOwner?: { name: string };
+    player?: { name: string };
+    phase?: string;
+    card?: { id: number, name: string };
+    land?: { id: number, name: string };
+    from?: string;
+    to?: string;
+    amount?: number;
+    isCombat?: boolean;
+    attacks?: { [defender: string]: { id: number, name: string }[] };
 }
 
 // Main orchestrator function
@@ -58,7 +55,7 @@ export async function postProcessLog(
     matchId: string
 ): Promise<{ gameStates: GameState[], winner: string | null }> {
 
-    const lines = rawLog.split('\n').filter(line => line.trim() !== '');
+    const lines = rawLog.split('\n');
     const LOGS_DIR = path.join(process.cwd(), "logs");
 
     const { player1, player2 } = findPlayerNamesFromRawLog(rawLog, validTeamIds);
@@ -72,21 +69,17 @@ export async function postProcessLog(
     const allGameStates: GameState[] = [JSON.parse(JSON.stringify(initialState))];
     
     for (const line of lines) {
-        if (line.startsWith("JSON_GAME_RESULT:")) {
-            continue; // Final winner line is handled at the end
-        }
-
-        try {
-            // We only care about lines that are valid JSON objects
-            if (line.trim().startsWith("{")) {
-                const event: GameLogEntry = JSON.parse(line);
+        if (line.startsWith("JSON_EVENT:")) {
+            try {
+                const jsonPart = line.substring("JSON_EVENT:".length);
+                const event: JsonEvent = JSON.parse(jsonPart);
                 const stateChanged = applyJsonEvent(currentState, event);
                 if (stateChanged) {
                     allGameStates.push(JSON.parse(JSON.stringify(currentState)));
                 }
+            } catch (e) {
+                console.warn(`[PARSER_WARN] Could not parse line as JSON: ${line}`);
             }
-        } catch (e) {
-            // console.warn(`[PARSER_WARN] Could not parse line as JSON: ${line}`);
         }
     }
     
@@ -109,74 +102,78 @@ export async function postProcessLog(
 }
 
 // --- The New Core Logic: Applying a structured event ---
-function applyJsonEvent(state: GameState, event: GameLogEntry): boolean {
+function applyJsonEvent(state: GameState, event: JsonEvent): boolean {
     if (!event.type) return false;
+    let stateChanged = false;
 
     switch(event.type) {
-        case 'TURN':
-            if (event.value === undefined || !event.player) return false;
-            state.turn = event.value;
-            state.activePlayer = event.player;
-            if (state.turn > 1 && state.players[event.player]) {
-                state.players[event.player].librarySize--;
-                state.players[event.player].handSize++;
+        case 'TURN_BEGAN':
+            if (event.turnNumber !== undefined && event.turnOwner?.name) {
+                state.turn = event.turnNumber;
+                state.activePlayer = event.turnOwner.name;
+                if (state.turn > 1 && state.players[state.activePlayer]) {
+                    state.players[state.activePlayer].librarySize--;
+                    state.players[state.activePlayer].handSize++;
+                }
+                stateChanged = true;
             }
-            return true;
+            break;
 
-        case 'PHASE':
-            if (event.player) {
-                state.phase = `${event.player}'s ${event.message} step`;
-            } else {
-                state.phase = event.message;
+        case 'PHASE_CHANGED':
+            if (event.player?.name && event.phase) {
+                state.phase = `${event.player.name}'s ${event.phase} step`;
+                stateChanged = true;
             }
-            return true;
+            break;
 
-        case 'DAMAGE':
-            const targetPlayerName = event.params?.player as string;
-            if (targetPlayerName && state.players[targetPlayerName] && event.value) {
-                state.players[targetPlayerName].life -= event.value;
-                return true;
+        case 'PLAYER_DAMAGED':
+            if (event.player?.name && state.players[event.player.name] && event.amount !== undefined) {
+                state.players[event.player.name].life -= event.amount;
+                stateChanged = true;
             }
-            // Damage can also be to a creature, which the ZONE_MOVE event will handle
-            return false;
+            break;
 
-        case 'ZONE_MOVE':
-            const { card, fromZone, toZone, player: owner } = event.params || {};
-            if (!card || !fromZone || !toZone || !owner) return false;
-            
+        case 'ZONE_CHANGE':
+            const { card, from, to } = event;
+            if (!card || !from || !to) break;
+
             const cardIdStr = String(card.id);
-            const sourcePlayer = state.players[owner];
-            if (!sourcePlayer) return false;
-
-            const fromArray = (sourcePlayer as any)[fromZone.toLowerCase()];
-            const toArray = (sourcePlayer as any)[toZone.toLowerCase()];
-            if (!Array.isArray(fromArray) || !Array.isArray(toArray)) return false;
-
-            const cardIndex = fromArray.findIndex((c: Card) => c.id === cardIdStr);
-            if (cardIndex > -1) {
-                const [movedCard] = fromArray.splice(cardIndex, 1);
-                toArray.push(movedCard);
-                return true;
-            }
-            return false;
             
-        case 'PLAY':
-             if (event.card && event.player && state.players[event.player]) {
-                 state.players[event.player].battlefield.push({ id: String(event.card.id), name: event.card.name });
-                 // In Forge, playing a land also triggers a "ZONE_MOVE" from hand to play, so handsize is handled there.
-                 return true;
-             }
-             return false;
+            for (const pName in state.players) {
+                const player = state.players[pName];
+                const fromZone = (player as any)[from.toLowerCase()];
+                const toZone = (player as any)[to.toLowerCase()];
 
-        case 'CAST_SPELL':
-             if (event.player && state.players[event.player]) {
-                 state.players[event.player].handSize--;
-                 return true;
+                if (Array.isArray(fromZone)) {
+                    const cardIndex = fromZone.findIndex((c: Card) => c.id === cardIdStr);
+                    if (cardIndex > -1) {
+                        const [movedCard] = fromZone.splice(cardIndex, 1);
+                        if (Array.isArray(toZone)) {
+                            toZone.push(movedCard);
+                            stateChanged = true;
+                        }
+                        break; 
+                    }
+                }
+            }
+            break;
+            
+        case 'LAND_PLAYED':
+             if (event.land && event.player?.name && state.players[event.player.name]) {
+                 state.players[event.player.name].battlefield.push({ id: String(event.land.id), name: event.land.name });
+                 stateChanged = true;
              }
-             return false;
+             break;
+
+        case 'SPELL_CAST':
+             if (event.player?.name && state.players[event.player.name]) {
+                 state.players[event.player.name].handSize--;
+                 stateChanged = true;
+             }
+             break;
     }
 
-    return false;
+    return stateChanged;
 }
 
 // --- UTILITY AND SETUP FUNCTIONS ---
@@ -206,7 +203,7 @@ function findPlayerNamesFromRawLog(rawLog: string, validTeamIds: string[]): { pl
     if (match && match[1] && match[2]) {
         const p1 = match[1].trim();
         const p2 = match[2].trim();
-        if (validTeamIds.some(id => p1.toLowerCase().includes(id)) && validTeamIds.some(id => p2.toLowerCase().includes(id))) {
+        if (validTeamIds.some(id => p1.toLowerCase().includes(id.toLowerCase())) && validTeamIds.some(id => p2.toLowerCase().includes(id.toLowerCase()))) {
             return { player1: p1, player2: p2 };
         }
     }

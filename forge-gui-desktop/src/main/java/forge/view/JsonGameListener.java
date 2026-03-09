@@ -1,14 +1,18 @@
 package forge.view;
 
+import java.util.ArrayList;
+import java.util.Collection;
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
+import com.google.common.collect.Multimap;
 import com.google.common.eventbus.Subscribe;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 
 import forge.game.GameEntityView;
-// Import all the specific event types we want to capture
+import forge.game.card.CardView;
 import forge.game.event.*;
 
 public class JsonGameListener {
@@ -75,6 +79,8 @@ public class JsonGameListener {
             dto.put("card", getCardDto(event.card()));
             dto.put("from", event.from() != null ? event.from().toString() : null);
             dto.put("to", event.to() != null ? event.to().toString() : null);
+            // The owner of the card is implicitly the player whose zone it is in.
+            // We can determine this in the parser based on the 'from' zone.
             return dto;
         }
 
@@ -130,9 +136,8 @@ public class JsonGameListener {
             dto.put("type", "ATTACKERS_DECLARED");
             dto.put("player", getPlayerDto(event.player()));
             
-            // Create a simple map of defender to list of attackers
             Map<String, List<Map<String, Object>>> attacks = new LinkedHashMap<>();
-            for (Map.Entry<GameEntityView, java.util.Collection<CardView>> entry : event.attackersMap().asMap().entrySet()) {
+            for (Map.Entry<GameEntityView, Collection<CardView>> entry : event.attackersMap().asMap().entrySet()) {
                 List<Map<String, Object>> attackerList = new ArrayList<>();
                 for (CardView attacker : entry.getValue()) {
                     attackerList.add(getCardDto(attacker));
