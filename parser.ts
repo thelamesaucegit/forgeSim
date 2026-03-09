@@ -30,7 +30,6 @@ export interface GameState {
   phase?: string;
 }
 
-// This interface mirrors the structure of the JSON DTO we now get from Java
 interface JsonEvent {
     type: string;
     turnNumber?: number;
@@ -39,14 +38,14 @@ interface JsonEvent {
     phase?: string;
     card?: { id: number, name: string };
     land?: { id: number, name: string };
-    from?: string; // e.g., "ZoneView[player=p1, zoneType=Library]"
+    from?: string;
     to?: string;
     amount?: number;
     isCombat?: boolean;
     attacks?: { [defender: string]: { id: number, name: string }[] };
 }
 
-// Main orchestrator function
+// --- Main Parser Logic ---
 export async function postProcessLog(
     rawLog: string, 
     validTeamIds: string[], 
@@ -68,17 +67,42 @@ export async function postProcessLog(
     let currentState = JSON.parse(JSON.stringify(initialState));
     const allGameStates: GameState[] = [JSON.parse(JSON.stringify(initialState))];
     
+    // --- Initial Hand Draw Simulation ---
+    // The first 14 ZONE_CHANGE events are the initial hands.
+    const initialDrawEvents = lines.map(line => {
+        if(line.startsWith("JSON_EVENT:")) {
+            try { return JSON.parse(line.substring("JSON_EVENT:".length)); } catch (e) { return null; }
+        }
+        return null;
+    }).filter(e => e && e.type === "ZONE_CHANGE");
+
+    const player1Hand = initialDrawEvents.slice(0, 7);
+    const player2Hand = initialDrawEvents.slice(7, 14);
+
+    player1Hand.forEach(e => applyJsonEvent(currentState, e));
+    player2Hand.forEach(e => applyJsonEvent(currentState, e));
+    // Save the state after initial hands are drawn
+    allGameStates.push(JSON.parse(JSON.stringify(currentState)));
+
+
+    // --- Process the rest of the game ---
     for (const line of lines) {
         if (line.startsWith("JSON_EVENT:")) {
             try {
                 const jsonPart = line.substring("JSON_EVENT:".length);
                 const event: JsonEvent = JSON.parse(jsonPart);
-                const stateChanged = applyJsonEvent(currentState, event);
-                if (stateChanged) {
+
+                // Skip initial draw events which we've already processed
+                if (initialDrawEvents.includes(event)) continue;
+
+                const isVisuallySignificant = applyJsonEvent(currentState, event);
+                
+                // Only save a new state if something visually changed
+                if (isVisuallySignificant) {
                     allGameStates.push(JSON.parse(JSON.stringify(currentState)));
                 }
             } catch (e) {
-                console.warn(`[PARSER_WARN] Could not parse line as JSON: ${line}`);
+                // Non-JSON lines or parse errors are ignored
             }
         }
     }
@@ -89,10 +113,9 @@ export async function postProcessLog(
     }
 
     try {
-        const turnsToLog = allGameStates.filter(gs => gs.turn <= 4);
-        const debugFilePath = path.join(LOGS_DIR, `${matchId}-debug-turns.json`);
-        await fs.writeFile(debugFilePath, JSON.stringify(turnsToLog, null, 2));
-        console.log(`[PARSER_DEBUG] Wrote first 4 turns to ${debugFilePath}`);
+        const debugFilePath = path.join(LOGS_DIR, `${matchId}-debug-final.json`);
+        await fs.writeFile(debugFilePath, JSON.stringify(allGameStates, null, 2));
+        console.log(`[PARSER_DEBUG] Wrote final game state to ${debugFilePath}`);
     } catch (e) {
         console.error("[PARSER_DEBUG] Failed to write debug file:", e);
     }
@@ -100,150 +123,113 @@ export async function postProcessLog(
     return { gameStates: allGameStates, winner };
 }
 
-// --- Helper function to parse the ZoneView string ---
-// FIX: Corrected the return type to allow player to be null
+
+// --- Helper to parse the ZoneView string ---
 function parseZoneString(zoneStr: string): { player: string | null, zone: string } | null {
-    const match = zoneStr.match(/ZoneView\[player=([^,]+), zoneType=([^\]]+)\]/);
+    // FIX: Regex now correctly handles the escaped '=' (\u003d)
+    const match = zoneStr.match(/ZoneView\[player(?:\\u003d|=)([^,]+), zoneType(?:\\u003d|=)([^\]]+)\]/);
     if (match && match[1] && match[2]) {
-        // The player name can be 'null' for the stack
         const player = match[1] === 'null' ? null : match[1];
         return { player, zone: match[2].toLowerCase() };
     }
     return null;
 }
 
-// --- The New Core Logic: Applying a structured event ---
+// --- Event application logic ---
 function applyJsonEvent(state: GameState, event: JsonEvent): boolean {
-    let stateChanged = false;
+    if (!event.type) return false;
 
     switch(event.type) {
         case 'TURN_BEGAN':
             if (event.turnNumber !== undefined && event.turnOwner?.name) {
                 state.turn = event.turnNumber;
                 state.activePlayer = event.turnOwner.name;
-                stateChanged = true;
+                return true; // Visually significant change
             }
-            break;
+            return false;
 
         case 'PHASE_CHANGED':
             if (event.player?.name && event.phase) {
                 state.phase = `${event.player.name}'s ${event.phase} step`;
-                stateChanged = true;
             }
-            break;
+            return false; // Not visually significant
 
         case 'PLAYER_DAMAGED':
             if (event.player?.name && state.players[event.player.name] && event.amount !== undefined) {
                 state.players[event.player.name].life -= event.amount;
-                stateChanged = true;
+                return true; // Visually significant change
             }
-            break;
+            return false;
 
         case 'ZONE_CHANGE':
             const { card, from, to } = event;
-            if (!card || !from || !to) break;
+            if (!card || !from || !to) return false;
 
             const fromData = parseZoneString(from);
             const toData = parseZoneString(to);
-            if (!fromData || !toData) break;
+            if (!fromData || !toData) return false;
 
             const cardIdStr = String(card.id);
-            let cardToMove: Card | undefined;
-            let fromPlayerName: string | null = null;
+            const cardToMove: Card = { id: cardIdStr, name: card.name };
             
-            // Find and remove the card from the source zone
-            if (fromData.player && state.players[fromData.player]) {
-                fromPlayerName = fromData.player;
-            } else { // Fallback for cases where player is null (like the stack)
-                for (const pName in state.players) {
-                     // Check all zones of all players, which is inefficient but necessary for stack/global zones
-                     for (const zName in state.players[pName]) {
-                         const zone = (state.players[pName] as any)[zName];
-                         if(Array.isArray(zone) && zone.some((c: Card) => c.id === cardIdStr)) {
-                             fromPlayerName = pName;
-                             break;
-                         }
-                     }
-                     if(fromPlayerName) break;
-                }
-            }
+            let cardFoundAndRemoved = false;
 
-            if(fromPlayerName) {
-                const sourcePlayer = state.players[fromPlayerName];
-                const sourceZone = (sourcePlayer as any)[fromData.zone];
-                 if (Array.isArray(sourceZone)) {
+            if (fromData.player && state.players[fromData.player]) {
+                const sourceZone = (state.players[fromData.player] as any)[fromData.zone];
+                if (Array.isArray(sourceZone)) {
                     const cardIndex = sourceZone.findIndex((c: Card) => c.id === cardIdStr);
                     if (cardIndex > -1) {
-                        [cardToMove] = sourceZone.splice(cardIndex, 1);
-                        stateChanged = true;
+                        sourceZone.splice(cardIndex, 1);
+                        cardFoundAndRemoved = true;
                     }
                 }
+            } else if (fromData.zone === 'stack') {
+                // Card is coming from the stack, it doesn't exist in a player zone yet
+                cardFoundAndRemoved = true;
+            } else if (fromData.zone === 'library') {
+                 // Card is being drawn or milled from library
+                 cardFoundAndRemoved = true;
             }
-            
-            // Add the card to the destination zone
-            if (cardToMove && toData.player && state.players[toData.player]) {
-                const destPlayer = state.players[toData.player];
-                const destZone = (destPlayer as any)[toData.zone];
+
+            if (!cardFoundAndRemoved) return false; // If we couldn't find the card, abort.
+
+            if (toData.player && state.players[toData.player]) {
+                const destZone = (state.players[toData.player] as any)[toData.zone];
                 if (Array.isArray(destZone)) {
                     destZone.push(cardToMove);
-                } else if(toData.zone !== 'stack') {
-                    // if dest is not a known zone, and not the stack, put it back where it came from
-                     const sourceZone = (state.players[fromPlayerName!] as any)[fromData.zone];
-                     sourceZone.push(cardToMove);
                 }
-            } else if (cardToMove && toData.zone === 'stack') {
-                // It moved to the stack, which we don't explicitly track on a player
-            } else if (cardToMove) {
-                 // Card moved to a zone without a player (e.g. exile), put it in the original owner's zone
-                 const originalOwner = state.players[fromPlayerName!];
-                 const destZone = (originalOwner as any)[toData.zone];
-                 if (Array.isArray(destZone)) {
-                    destZone.push(cardToMove);
-                 }
             }
-
-
-            // Update hand/library sizes based on zone moves
-            if (stateChanged) {
-                 if (fromData.zone === 'library' && fromData.player) state.players[fromData.player].librarySize--;
-                 if (toData.zone === 'library' && toData.player) state.players[toData.player].librarySize++;
-                 if (fromData.zone === 'hand' && fromData.player) state.players[fromData.player].handSize--;
-                 if (toData.zone === 'hand' && toData.player) state.players[toData.player].handSize++;
-            }
-            break;
             
-        case 'LAND_PLAYED': // This might be redundant if ZONE_CHANGE is perfect, but good for safety
-             if (event.land && event.player?.name && state.players[event.player.name]) {
-                 const cardExists = state.players[event.player.name].battlefield.some(c => c.id === String(event.land!.id));
-                 if(!cardExists) {
-                    state.players[event.player.name].battlefield.push({ id: String(event.land.id), name: event.land.name });
-                    stateChanged = true;
-                 }
-             }
-             break;
+            // Update hand/library counts
+            if (fromData.player && state.players[fromData.player]) {
+                if(fromData.zone === 'library') state.players[fromData.player].librarySize--;
+                if(fromData.zone === 'hand') state.players[fromData.player].handSize--;
+            }
+             if (toData.player && state.players[toData.player]) {
+                if(toData.zone === 'library') state.players[toData.player].librarySize++;
+                if(toData.zone === 'hand') state.players[toData.player].handSize++;
+            }
+            
+            return true; // Zone changes are always visually significant
     }
 
-    return stateChanged;
+    return false; // Default to not significant
 }
 
+// --- UTILITY FUNCTIONS ---
 function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Content: string): GameState {
-    const countCards = (content: string): number => {
-        return content.split('\n').reduce((count, line) => {
-            const trimmed = line.trim();
-            if (trimmed && !trimmed.startsWith('[') && trimmed.match(/^\d+\s+.+/)) {
-                const quantityMatch = trimmed.match(/^(\d+)\s/);
-                return count + (quantityMatch ? parseInt(quantityMatch[1], 10) : 0);
-            }
-            return count;
-        }, 0);
-    };
+    const countCards = (content: string): number => content.split('\n').filter(line => line.trim() && !line.trim().startsWith('[')).length;
     const deck1Size = countCards(d1Content);
     const deck2Size = countCards(d2Content);
     
-    const state: GameState = { turn: 0, activePlayer: "", players: {} };
-    state.players[p1Name] = { name: p1Name, life: 20, handSize: 7, librarySize: deck1Size - 7, battlefield: [], graveyard: [], exile: [] };
-    state.players[p2Name] = { name: p2Name, life: 20, handSize: 7, librarySize: deck2Size - 7, battlefield: [], graveyard: [], exile: [] };
-    return state;
+    return {
+        turn: 0,
+        activePlayer: "",
+        players: {
+            [p1Name]: { name: p1Name, life: 20, handSize: 0, librarySize: deck1Size, battlefield: [], graveyard: [], exile: [] },
+            [p2Name]: { name: p2Name, life: 20, handSize: 0, librarySize: deck2Size, battlefield: [], graveyard: [], exile: [] }
+        }
+    };
 }
 
 function findPlayerNamesFromRawLog(rawLog: string, validTeamIds: string[]): { player1: string | null, player2: string | null } {
@@ -263,11 +249,12 @@ function findWinner(lines: string[], players: string[]): string | null {
     for (const line of lines) {
         if (line.startsWith("JSON_GAME_RESULT:")) {
             try {
-                const result = JSON.parse(line.substring("JSON_GAME_RESULT:".length));
+                const jsonStr = line.substring("JSON_GAME_RESULT:".length).replace(/\\n/g, '');
+                const result = JSON.parse(jsonStr);
                 if (result.winner && players.includes(result.winner)) {
                     return result.winner;
                 }
-            } catch(e) { console.error("Failed to parse winner JSON:", e); }
+            } catch(e) { console.error("Failed to parse winner JSON:", line, e); }
         }
     }
     return null;
