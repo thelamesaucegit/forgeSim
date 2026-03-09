@@ -1,4 +1,5 @@
-import { GameState } from './parser';
+// FIX: Added .js extension to the import path for ES Module compatibility
+import { GameState } from './parser.js';
 
 /**
  * This is the final step in processing the game log. It takes the raw array of every
@@ -39,7 +40,7 @@ export function processReplay(rawGameStates: GameState[]): GameState[] {
 
         // Add a "hold" frame if a significant event occurred
         if (hasSignificantEvent(prev, current)) {
-            // Duplicate the frame 2 times to make it hold for a total of 3 frames (e.g., ~1.5 seconds)
+            // Duplicate the frame 2 times to make it hold for a total of 3 frames
             finalPacedReplay.push(JSON.parse(JSON.stringify(current)));
             finalPacedReplay.push(JSON.parse(JSON.stringify(current)));
         }
@@ -79,7 +80,6 @@ function hasSignificantEvent(prevState: GameState | null, currState: GameState):
         if (prevBattlefield.length !== currBattlefield.length) {
             return true;
         }
-        // This could be made more robust by checking card IDs, but length is a good proxy for now.
     }
 
     return false;
