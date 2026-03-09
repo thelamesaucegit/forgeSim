@@ -5,16 +5,12 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.EnumSet;
 import java.util.HashMap;
-import java.util.LinkedHashMap; // Use a predictable Map implementation
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.TimeoutException;
 
 import org.apache.commons.lang3.time.StopWatch;
-
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
 
 import forge.LobbyPlayer;
 import forge.deck.Deck;
@@ -43,8 +39,7 @@ import forge.util.storage.IStorage;
 
 public class SimulateMatch {
 
-    // The 'simulate' method and other helpers remain unchanged from the last correct version.
-    // They correctly parse command-line arguments and set up the match.
+    // The 'simulate' method and other helpers remain unchanged.
     public static void simulate(String[] args) {
         FModel.initialize(null, null, true);
         System.out.println("Simulation mode");
@@ -164,14 +159,14 @@ public class SimulateMatch {
         System.out.println("Syntax: forge.exe sim -d <deck1[.dck]> <deck2[.dck]> ... -a [profile1] [profile2] ... -n [N]");
     }
 
-    // --- THIS IS THE ONLY MODIFIED METHOD IN THIS FILE ---
     public static void simulateSingleMatch(final Match mc, int iGame, boolean outputGamelog) {
         final StopWatch sw = new StopWatch();
         sw.start();
-
-        final Gson gson = new GsonBuilder().create();
-
         final Game g1 = mc.createGame();
+
+        // --- NEW: Register our custom JSON listener to the game's event bus ---
+        g1.getEventBus().register(new JsonGameListener());
+
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
                 mc.startGame(g1);
@@ -190,58 +185,8 @@ public class SimulateMatch {
             }
         }
 
-        List<GameLogEntry> log = g1.getGameLog().getLogEntries(null);
-        Collections.reverse(log);
-
-        for (GameLogEntry entry : log) {
-            // --- FIX: Manually build a simple DTO to prevent circular references ---
-            Map<String, Object> dto = new LinkedHashMap<>();
-            dto.put("type", entry.getType().toString());
-            dto.put("message", entry.getMessage());
-            
-            if (entry.getPlayer() != null) {
-                dto.put("player", entry.getPlayer().getName());
-            }
-
-            if (entry.getCard() != null) {
-                Map<String, Object> cardDto = new LinkedHashMap<>();
-                cardDto.put("id", entry.getCard().getId());
-                cardDto.put("name", entry.getCard().getName());
-                dto.put("card", cardDto);
-            }
-            
-            // Add other simple fields as needed
-            // entry.getValue() might be useful for TURN_CHANGE or DAMAGE
-            if (entry.getType().toString().equals("TURN")) {
-                dto.put("value", entry.getTurn());
-            }
-
-            // The 'params' map often contains the most useful structured data
-            if (entry.getParams() != null) {
-                // We must be careful here too, and only copy primitive values
-                Map<String, Object> cleanParams = new LinkedHashMap<>();
-                for(Map.Entry<String, Object> param : entry.getParams().entrySet()) {
-                    String key = param.getKey();
-                    Object value = param.getValue();
-                    
-                    // Only include primitives or simple objects we know are safe
-                    if (value instanceof String || value instanceof Number || value instanceof Boolean) {
-                        cleanParams.put(key, value);
-                    } else if (value instanceof forge.game.card.Card) {
-                        // If a param is a Card object, flatten it
-                        forge.game.card.Card cardValue = (forge.game.card.Card) value;
-                        Map<String, Object> cardParamDto = new LinkedHashMap<>();
-                        cardParamDto.put("id", cardValue.getId());
-                        cardParamDto.put("name", cardValue.getName());
-                        cleanParams.put(key, cardParamDto);
-                    }
-                }
-                dto.put("params", cleanParams);
-            }
-
-            System.out.println(gson.toJson(dto));
-        }
-
+        // The old logging is no longer needed. Our listener prints directly to System.out.
+        // We just print the final result.
         if (g1.getOutcome().isDraw()) {
             System.out.printf("JSON_GAME_RESULT:{\"winner\":null,\"duration\":%d}%n", sw.getTime());
         } else {
@@ -250,7 +195,7 @@ public class SimulateMatch {
     }
 
     private static void simulateTournament(Map<String, List<String>> params, GameRules rules, boolean outputGamelog) {
-        // This entire method remains unchanged.
+        // This method remains unchanged.
         String tournament = params.get("t").get(0);
         AbstractTournament tourney = null;
         int matchPlayers = params.containsKey("p") ? Integer.parseInt(params.get("p").get(0)) : 2;
