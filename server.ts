@@ -5,6 +5,7 @@ import * as http from 'http';
 import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import { postProcessLog } from './parser.js';
 import { processReplay } from './ReplayProcessor.js';
+import { WebSocket } from 'ws'; // This import is correct
 
 // --- CONFIGURATION ---
 const SUPABASE_URL = process.env.SUPABASE_URL!;
@@ -12,10 +13,13 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
 
-// --- ENHANCED DIAGNOSTIC LOGGER ---
-const realtimeLogger = (level: string, message: string, data: any) => {
-    console.log(`[REALTIME_CLIENT] Level: ${level}, Message: ${message}`, data ? `Data: ${JSON.stringify(data)}` : '');
-};
+// --- TYPE-SAFE ADAPTER ---
+// This is the correct, type-safe way to resolve the constructor mismatch.
+// We create a new class that extends the imported WebSocket, ensuring its
+// constructor signature is compatible with what the Supabase client expects.
+const WebSocketAdapter = (url: string, protocols: string | string[] | undefined) => {
+    return new WebSocket(url, protocols);
+}
 
 // --- INITIALIZATION ---
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
@@ -23,15 +27,14 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
         persistSession: false,
         autoRefreshToken: false,
     },
-    // --- FIX: Add a custom logger to get detailed connection information ---
     realtime: {
-        logger: realtimeLogger,
+        // Pass our type-safe adapter function to the transport option.
+        transport: WebSocketAdapter,
     }
 });
-console.log('[INIT] Supabase client initialized with REALTIME diagnostics.');
+console.log('[INIT] Supabase client initialized with type-safe WebSocket transport.');
 
-// ... (The rest of the file remains the same) ...
-
+// ... (The rest of the file remains unchanged) ...
 // Ensure required directories exist
 fs.mkdir(LOGS_DIR, { recursive: true });
 fs.mkdir(DECKS_DIR, { recursive: true });
