@@ -21,10 +21,11 @@ export async function postProcessLog(
         if (line.startsWith("JSON_EVENT:")) {
             try {
                 const event: JsonEvent = JSON.parse(line.substring(11));
+                // Apply the event to the last known state to produce the next state.
                 const newState = applyJsonEvent(gameStates[gameStates.length - 1], event, cardDictionary);
                 gameStates.push(newState);
             } catch (e) {
-                // Malformed JSON, ignore.
+                // Ignore malformed JSON lines.
             }
         }
     }
@@ -84,9 +85,10 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
             if (event.card) {
                 const cardId = String(event.card.id);
                 const location = findCardAndZone(state, cardId);
-                // Only move from hand to stack on cast. Other casts are from other zones (e.g. flashback from graveyard)
-                if (location && location.zoneName === 'hand' && location.player) {
-                    const [cardToMove] = (location.player.hand).splice(location.index, 1);
+                // Move from hand to stack. Other casts (e.g. flashback) are handled by ZONE_CHANGE.
+                if(location && location.zoneName === 'hand' && location.player) {
+                    const [cardToMove] = location.player.hand.splice(location.index, 1);
+                    cardToMove.cardType = cardDictionary.get(cardToMove.name) || 'Unknown';
                     state.stack.push(cardToMove);
                 }
             }
@@ -112,7 +114,6 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
                         [cardToMove] = zone.splice(location.index, 1);
                     }
                 } else {
-                    // Card is coming from a 'hidden' zone (library)
                     if (from.zone === 'library' && from.player && state.players[from.player]) {
                         state.players[from.player].librarySize--;
                     }
@@ -120,12 +121,11 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
                 }
 
                 if (cardToMove) {
-                    // Ensure cardType is always present
                     cardToMove.cardType = cardType; 
                     if (to.player && state.players[to.player]) {
                         const destZoneKey = to.zone.toLowerCase();
                         if (destZoneKey === 'library') {
-                             state.players[to.player].librarySize++; // Fix for mulligan
+                             state.players[to.player].librarySize++; // Correctly handle mulligans
                         } else {
                             const destZone = (state.players[to.player] as any)[destZoneKey];
                             if (Array.isArray(destZone)) {
