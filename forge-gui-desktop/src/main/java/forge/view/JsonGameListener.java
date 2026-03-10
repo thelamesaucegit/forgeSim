@@ -1,26 +1,29 @@
 package forge.view;
 
-
-import com.google.common.eventbus.Subscribe;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import forge.game.GameEntityView;
-import forge.game.card.Card;
-import forge.game.card.CardView;
-import forge.game.combat.AttackingBand;
-import forge.game.event.*;
-
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import com.google.common.collect.Multimap;
+import com.google.common.eventbus.Subscribe;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import forge.game.GameEntity;
+import forge.game.GameEntityView;
+import forge.game.card.Card;
+import forge.game.card.CardView;
+import forge.game.combat.AttackingBand;
+import forge.game.event.*;
+import forge.game.player.Player;
+import forge.game.player.PlayerView;
 
 public class JsonGameListener {
-    private final Gson gson = new GsonBuilder().create();
+    private final Gson gson = new GsonBuilder().setLenient().create();
 
     @Subscribe
     public void recordEvent(GameEvent event) {
+        // We need a custom visitor to handle all the event types
         Map<String, Object> dto = event.visit(new JsonEventVisitor());
         if (dto != null) {
             System.out.println("JSON_EVENT:" + gson.toJson(dto));
@@ -28,7 +31,8 @@ public class JsonGameListener {
     }
 
     private static class JsonEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
-        private Map<String, Object> getCardDto(GameEntityView card) {
+
+        private Map<String, Object> getCardDto(CardView card) {
             if (card == null) return null;
             Map<String, Object> cardDto = new LinkedHashMap<>();
             cardDto.put("id", card.getId());
@@ -36,7 +40,13 @@ public class JsonGameListener {
             return cardDto;
         }
 
-        // --- NEW EVENT HANDLERS ---
+        private Map<String, Object> getPlayerDto(PlayerView player) {
+            if (player == null) return null;
+            Map<String, Object> playerDto = new LinkedHashMap<>();
+            playerDto.put("name", player.getName());
+            return playerDto;
+        }
+
         @Override
         public Map<String, Object> visit(GameEventCardTapped event) {
             Map<String, Object> dto = new LinkedHashMap<>();
@@ -50,19 +60,19 @@ public class JsonGameListener {
         public Map<String, Object> visit(GameEventBlockersDeclared event) {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "BLOCKERS_DECLARED");
+            
             Map<String, List<Map<String, Object>>> blocks = new LinkedHashMap<>();
-            for (Map.Entry<AttackingBand, Card> entry : event.blockers().entries()) {
-                Card blocker = entry.getValue();
-                for (Card attacker : entry.getKey().getAttackers()) {
-                    String attackerId = String.valueOf(attacker.getId());
-                    blocks.computeIfAbsent(attackerId, k -> new ArrayList<>()).add(getCardDto(CardView.get(blocker)));
+            // FIX: Use entrySet() and correctly iterate through the complex Map structure
+            for (Map.Entry<GameEntityView, Multimap<CardView, CardView>> defenderEntry : event.blockers().entrySet()) {
+                for (Map.Entry<CardView, CardView> blockEntry : defenderEntry.getValue().entries()) {
+                    String attackerId = String.valueOf(blockEntry.getKey().getId());
+                    blocks.computeIfAbsent(attackerId, k -> new ArrayList<>()).add(getCardDto(blockEntry.getValue()));
                 }
             }
             dto.put("blocks", blocks);
             return dto;
         }
-
-        // --- REFINED EVENT HANDLERS ---
+        
         @Override
         public Map<String, Object> visit(GameEventSpellAbilityCast event) {
             Map<String, Object> dto = new LinkedHashMap<>();
@@ -86,17 +96,15 @@ public class JsonGameListener {
         }
 
         @Override
-        public Map<String, Object> visit(GameEventZone event) {
+        public Map<String, Object> visit(GameEventCardChangeZone event) {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "ZONE_CHANGE");
             dto.put("card", getCardDto(event.card()));
-            dto.put("from", event.zoneType() != null ? event.zoneType().toString() : null);
-            dto.put("to", event.mode().toString()); // Using mode for destination for simplicity
-            dto.put("player", getPlayerDto(event.player()));
+            dto.put("from", event.from() != null ? event.from().toString() : "Nowhere");
+            dto.put("to", event.to() != null ? event.to().toString() : "Oblivion");
             return dto;
         }
         
-        // -- Unchanged but still necessary --
         @Override
         public Map<String, Object> visit(GameEventTurnBegan event) {
             Map<String, Object> dto = new LinkedHashMap<>();
@@ -105,6 +113,7 @@ public class JsonGameListener {
             dto.put("turnOwner", getPlayerDto(event.turnOwner()));
             return dto;
         }
+        
         @Override
         public Map<String, Object> visit(GameEventPlayerDamaged event) {
             Map<String, Object> dto = new LinkedHashMap<>();
@@ -113,11 +122,5 @@ public class JsonGameListener {
             dto.put("amount", event.amount());
             return dto;
         }
-
-        // -- Ignored Events --
-        @Override public Map<String, Object> visit(GameEventTurnPhase e) { return null; }
-        @Override public Map<String, Object> visit(GameEventCardChangeZone e) { return null; }
-        @Override public Map<String, Object> visit(GameEventSpellResolved e) { return null; }
-        @Override public Map<String, Object> visit(GameEventLandPlayed e) { return null; }
     }
 }
