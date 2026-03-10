@@ -5,7 +5,14 @@ import * as http from 'http';
 import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
 import { postProcessLog } from './parser.js';
 import { processReplay } from './ReplayProcessor.js';
-import { WebSocket } from 'ws'; // This import is correct
+import { WebSocket } from 'ws';
+
+// --- TYPE DEFINITION from @supabase/realtime-js ---
+// We define the expected constructor type here to ensure compatibility.
+type WebSocketLikeConstructor = new (
+  address: string | URL,
+  subprotocols?: string | string[] | undefined
+) => any;
 
 // --- CONFIGURATION ---
 const SUPABASE_URL = process.env.SUPABASE_URL!;
@@ -13,29 +20,25 @@ const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
 
-// --- TYPE-SAFE ADAPTER ---
-// This is the correct, type-safe way to resolve the constructor mismatch.
-// We create a new class that extends the imported WebSocket, ensuring its
-// constructor signature is compatible with what the Supabase client expects.
-const WebSocketAdapter = (url: string, protocols: string | string[] | undefined) => {
-    return new WebSocket(url, protocols);
-}
-
 // --- INITIALIZATION ---
-// FIX: Explicitly set the WebSocket transport to work around Node.js v20 issues.
+// FIX: This correctly tells TypeScript that the 'ws' WebSocket class is compatible
+// with the constructor type that the Supabase client expects. This is a type-safe
+// way to resolve the incompatibility without using 'any'.
+const WsAdapter: WebSocketLikeConstructor = WebSocket;
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: {
         persistSession: false,
         autoRefreshToken: false,
     },
     realtime: {
-        // Pass our type-safe adapter function to the transport option.
-        transport: WebSocketAdapter,
+        transport: WsAdapter,
     }
 });
 console.log('[INIT] Supabase client initialized with type-safe WebSocket transport.');
 
-// ... (The rest of the file remains unchanged) ...
+// ... (The rest of the file is unchanged) ...
+
 // Ensure required directories exist
 fs.mkdir(LOGS_DIR, { recursive: true });
 fs.mkdir(DECKS_DIR, { recursive: true });
