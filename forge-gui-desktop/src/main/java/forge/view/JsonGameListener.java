@@ -1,29 +1,24 @@
 package forge.view;
 
+import com.google.common.collect.Multimap; // RE-ADDED: This is now required by the visit(GameEventBlockersDeclared) method.
+import com.google.common.eventbus.Subscribe;
+import com.google.gson.Gson;
+import com.google.gson.GsonBuilder;
+import forge.game.GameEntityView;
+import forge.game.card.CardView;
+import forge.game.event.*;
+import forge.game.player.PlayerView; // RE-ADDED: This is now required by the getPlayerDto and other visit methods.
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import com.google.common.collect.Multimap;
-import com.google.common.eventbus.Subscribe;
-import com.google.gson.Gson;
-import com.google.gson.GsonBuilder;
-import forge.game.GameEntity;
-import forge.game.GameEntityView;
-import forge.game.card.Card;
-import forge.game.card.CardView;
-import forge.game.combat.AttackingBand;
-import forge.game.event.*;
-import forge.game.player.Player;
-import forge.game.player.PlayerView;
 
 public class JsonGameListener {
     private final Gson gson = new GsonBuilder().setLenient().create();
 
     @Subscribe
     public void recordEvent(GameEvent event) {
-        // We need a custom visitor to handle all the event types
         Map<String, Object> dto = event.visit(new JsonEventVisitor());
         if (dto != null) {
             System.out.println("JSON_EVENT:" + gson.toJson(dto));
@@ -31,7 +26,6 @@ public class JsonGameListener {
     }
 
     private static class JsonEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
-
         private Map<String, Object> getCardDto(CardView card) {
             if (card == null) return null;
             Map<String, Object> cardDto = new LinkedHashMap<>();
@@ -60,9 +54,7 @@ public class JsonGameListener {
         public Map<String, Object> visit(GameEventBlockersDeclared event) {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "BLOCKERS_DECLARED");
-            
             Map<String, List<Map<String, Object>>> blocks = new LinkedHashMap<>();
-            // FIX: Use entrySet() and correctly iterate through the complex Map structure
             for (Map.Entry<GameEntityView, Multimap<CardView, CardView>> defenderEntry : event.blockers().entrySet()) {
                 for (Map.Entry<CardView, CardView> blockEntry : defenderEntry.getValue().entries()) {
                     String attackerId = String.valueOf(blockEntry.getKey().getId());
