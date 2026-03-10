@@ -31,7 +31,7 @@ export function processReplay(rawGameStates: GameState[]): GameState[] {
     return finalPacedReplay;
 }
 
-// A change is "visual" if a card changes zone, a player's life changes, or a spell is cast.
+// A change is "visual" if a card changes zone, a player's life changes, or a spell is cast to the stack.
 function isVisuallyDifferent(prevState: GameState, currState: GameState): boolean {
     return JSON.stringify(prevState.players) !== JSON.stringify(currState.players) || 
            JSON.stringify(prevState.stack) !== JSON.stringify(currState.stack);
@@ -42,7 +42,7 @@ function isVisuallyDifferent(prevState: GameState, currState: GameState): boolea
 function hasSignificantEvent(prevState: GameState | null, currState: GameState): boolean {
     if (!prevState) return true; // The first state is always significant
 
-    // A spell was cast
+    // A spell was cast to the stack
     if (currState.stack.length > prevState.stack.length) return true; 
     
     for (const pName in currState.players) {
