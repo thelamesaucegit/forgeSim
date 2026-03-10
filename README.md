@@ -1,3 +1,7 @@
+## This branch of the original Forge code is purpose-built to run a headless-only, Ai vs Ai mode from the CLI, parse all of the game actions from those matches into an event-by-event JSON, and import that into a database where the front end of [The Dynasty Cube](https://thedynastycube.com) translated that into a simple game replay viewer. All packaged in a neat Docker image on a simple node.js linux server.
+
+Original Forge intro below, with the no longer relevant bits removed.
+
 # ⚔️  Forge: The Magic: The Gathering Rules Engine
 
 Join the **Forge community** on [Discord](https://discord.gg/HcPJNyD66a)!
@@ -16,9 +20,8 @@ Join the **Forge community** on [Discord](https://discord.gg/HcPJNyD66a)!
 
 ## 🌟 Key Features
 
-- **🌐 Cross-Platform Support:** Play on **Windows, Mac, Linux,** and **Android**.
 - **🔧 Extensible Architecture:** Built in **Java**, Forge encourages developers to contribute by adding features and cards.
-- **🎮 Versatile Gameplay:** Dive into single-player modes or challenge opponents online!
+
 
 ---
 
@@ -41,18 +44,6 @@ Join the **Forge community** on [Discord](https://discord.gg/HcPJNyD66a)!
 
 Forge offers various exciting gameplay options:
 
-### 🌍 Adventure Mode
-Embark on a thrilling single-player journey where you can:
-- Explore an overworld map.
-- Challenge diverse AI opponents.
-- Collect cards and items to boost your abilities.
-
-<img width="1282" height="752" alt="Shandalar World" src="https://github.com/user-attachments/assets/9af31471-d688-442f-9418-9807d8635b72" />
-
-### 🔍 Quest Modes
-Engage in focused gameplay without the overworld exploration—perfect for quick sessions!
-
-<img width="1282" height="752" alt="Quest Duels" src="https://github.com/user-attachments/assets/b9613b1c-e8c3-4320-8044-6922c519aad4" />
 
 ### 🤖 AI Formats
 Test your skills against AI in multiple formats:
