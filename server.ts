@@ -8,7 +8,6 @@ import { processReplay } from './ReplayProcessor.js';
 import { WebSocket } from 'ws';
 
 // --- TYPE DEFINITION from @supabase/realtime-js ---
-// We define the expected constructor type here to ensure compatibility.
 type WebSocketLikeConstructor = new (
   address: string | URL,
   subprotocols?: string | string[] | undefined
@@ -21,9 +20,6 @@ const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
 
 // --- INITIALIZATION ---
-// FIX: This correctly tells TypeScript that the 'ws' WebSocket class is compatible
-// with the constructor type that the Supabase client expects. This is a type-safe
-// way to resolve the incompatibility without using 'any'.
 const WsAdapter: WebSocketLikeConstructor = WebSocket;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
@@ -36,8 +32,6 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     }
 });
 console.log('[INIT] Supabase client initialized with type-safe WebSocket transport.');
-
-// ... (The rest of the file is unchanged) ...
 
 // Ensure required directories exist
 fs.mkdir(LOGS_DIR, { recursive: true });
@@ -113,7 +107,12 @@ async function spawnMatchProcess(payload: any) {
         ]);
         
         let rawLog = '';
-        child.stdout.on('data', (data) => rawLog += data.toString());
+        // FIX: Restore console logging for real-time troubleshooting
+        child.stdout.on('data', (data) => {
+            const chunk = data.toString();
+            rawLog += chunk;
+            console.log(`[FORGE_LOG_CHUNK] ${chunk.trim()}`);
+        });
         child.stderr.on('data', (data) => console.error(`[JVM_STDERR] Match ${matchId}: ${data.toString().trim()}`));
 
         child.on('close', async (code) => {
@@ -133,9 +132,10 @@ async function spawnMatchProcess(payload: any) {
             
             const finalReplay = processReplay(gameStates);
 
+            // FIX: Use the correct column name 'game_states' instead of the assumed 'game_log'
             const { error: dbError } = await supabase
                 .from('sim_matches')
-                .update({ winner, game_log: finalReplay })
+                .update({ winner, game_states: finalReplay })
                 .eq('id', matchId);
 
             if (dbError) {
