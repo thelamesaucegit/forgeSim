@@ -37,6 +37,8 @@ export interface JsonEvent {
     from?: string;
     to?: string;
     player?: { name: string };
+    // FIX: Add the missing 'amount' property for PLAYER_DAMAGED events
+    amount?: number; 
     phase?: string;
 }
 
