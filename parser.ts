@@ -1,4 +1,4 @@
-import { GameState, Card, PlayerState, JsonEvent } from './types';
+import { GameState, Card, PlayerState, JsonEvent, CardLocation } from './types';
 import { parseZoneString, findPlayerNamesFromRawLog, findWinner } from './utils';
 
 export async function postProcessLog(
@@ -29,16 +29,16 @@ export async function postProcessLog(
     return { gameStates, winner };
 }
 
-const findCardAndZone = (state: GameState, cardId: string): { card: Card; player: PlayerState; zoneName: string; } | null => {
+const findCardAndZone = (state: GameState, cardId: string): CardLocation | null => {
     for (const player of Object.values(state.players)) {
         for (const zoneName of ['battlefield', 'graveyard', 'exile', 'hand']) {
             const zone = (player as any)[zoneName];
-            const card = zone.find((c: Card) => c.id === cardId);
-            if (card) return { card, player, zoneName };
+            const cardIndex = zone.findIndex((c: Card) => c.id === cardId);
+            if (cardIndex !== -1) return { player, zoneName, card: zone[cardIndex], index: cardIndex };
         }
     }
     return null;
-}
+};
 
 function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: Map<string, string>): GameState {
     const state: GameState = JSON.parse(JSON.stringify(prevState));
@@ -46,18 +46,16 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
     if (event.type === "TURN_BEGAN" && event.turnOwner?.name) {
         state.turn = event.turnNumber!;
         state.activePlayer = event.turnOwner.name;
-        state.players[state.activePlayer]?.battlefield.forEach(c => c.isTapped = false);
+        if (state.players[state.activePlayer]) {
+            state.players[state.activePlayer].battlefield.forEach(c => { c.isTapped = false; c.isAttacking = false; c.isBlocking = false; });
+        }
         Object.values(state.players).forEach(p => p.battlefield.forEach(c => { c.isAttacking = false; c.isBlocking = false; }));
     }
-
-    if (event.type === "SPELL_CAST" && event.card) {
+    else if (event.type === "SPELL_CAST" && event.card) {
         const cardType = cardDictionary.get(event.card.name) || 'Unknown';
-        if (cardType === 'Instant' || cardType === 'Sorcery') {
-            state.stack.push({ id: String(event.card.id), name: event.card.name, cardType });
-        }
+        state.stack.push({ id: String(event.card.id), name: event.card.name, cardType });
     }
-
-    if (event.type === "ZONE_CHANGE" && event.card) {
+    else if (event.type === "ZONE_CHANGE" && event.card) {
         const from = parseZoneString(event.from!);
         const to = parseZoneString(event.to!);
         if (!from || !to) return state;
@@ -65,20 +63,17 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
         const cardId = String(event.card.id);
         const cardType = cardDictionary.get(event.card.name) || 'Unknown';
         
-        const cardLocation = findCardAndZone(state, cardId);
         let cardToMove: Card;
+        const location = findCardAndZone(state, cardId);
 
-        if (cardLocation) {
-            const { player, zoneName } = cardLocation;
-            const zone = (player as any)[zoneName] as Card[];
-            const cardIndex = zone.findIndex(c => c.id === cardId);
-            [cardToMove] = zone.splice(cardIndex, 1);
+        if (location) {
+            const { player, zoneName, index } = location;
+            cardToMove = ((player as any)[zoneName] as Card[]).splice(index, 1)[0];
+        } else if (from.zone === 'library' && from.player && state.players[from.player]) {
+            state.players[from.player].librarySize--;
+            cardToMove = { id: cardId, name: event.card.name, cardType };
         } else {
             cardToMove = { id: cardId, name: event.card.name, cardType };
-        }
-
-        if (from.zone === 'library' && from.player && state.players[from.player]) {
-            state.players[from.player].librarySize--;
         }
         
         if (to.player && state.players[to.player]) {
@@ -86,31 +81,24 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
             if (Array.isArray(destZone)) destZone.push(cardToMove);
         }
         
-        // Clear stack after a spell moves from it
-        if (from.zone === 'stack') {
-            state.stack = state.stack.filter(c => c.id !== cardId);
-        }
+        if (from.zone === 'stack') state.stack = state.stack.filter(c => c.id !== cardId);
     }
-
-    if (event.type === "CARD_TAPPED_CHANGE" && event.card) {
-        const card = findCardAndZone(state, String(event.card.id))?.card;
-        if (card) card.isTapped = event.isTapped;
+    else if (event.type === "CARD_TAPPED_CHANGE" && event.card) {
+        const loc = findCardAndZone(state, String(event.card.id));
+        if (loc) loc.card.isTapped = event.isTapped;
     }
-
-    if (event.type === "ATTACKERS_DECLARED" && event.attackers) {
+    else if (event.type === "ATTACKERS_DECLARED" && event.attackers) {
         Object.keys(event.attackers).forEach(attackerId => {
-            const card = findCardAndZone(state, attackerId)?.card;
-            if (card) card.isAttacking = true;
+            const loc = findCardAndZone(state, attackerId);
+            if (loc) loc.card.isAttacking = true;
         });
     }
-
-    if (event.type === "BLOCKERS_DECLARED" && event.blocks) {
+    else if (event.type === "BLOCKERS_DECLARED" && event.blocks) {
         Object.values(event.blocks).flat().forEach(blockerDto => {
-            const card = findCardAndZone(state, String(blockerDto.id))?.card;
-            if(card) card.isBlocking = true;
+            const loc = findCardAndZone(state, String(blockerDto.id));
+            if(loc) loc.card.isBlocking = true;
         });
     }
-
     return state;
 }
 
@@ -118,7 +106,7 @@ function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Co
     const countCards = (content: string): number => {
         return content.split('\n').reduce((count, line) => {
             const trimmed = line.trim();
-            if (!trimmed || trimmed.startsWith('[') || trimmed.toLowerCase().includes('name=')) return count;
+            if (!trimmed || trimmed.startsWith('[') || trimmed.toLowerCase().startsWith('name=')) return count;
             const match = trimmed.match(/^(\d+)\s/);
             return count + (match ? parseInt(match[1], 10) : 1);
         }, 0);
