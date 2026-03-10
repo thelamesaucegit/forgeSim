@@ -70,6 +70,22 @@ public class Combat {
     private final Supplier<CardCollection> lkiCache = Suppliers.memoize(CardCollection::new);
     private final Supplier<CardDamageMap> damageMap = Suppliers.memoize(CardDamageMap::new);
 
+   
+    private Map<GameEntity, Multimap<Card, Card>> getBlockersByAttacker() {
+    Map<GameEntity, Multimap<Card, Card>> result = new HashMap<>();
+    for (AttackingBand band : getAttackingBands()) {
+        for (Card attacker : band.getAttackers()) {
+            GameEntity defender = getDefenderByAttacker(attacker);
+            if (defender == null) continue;
+
+            Multimap<Card, Card> blockerMap = result.computeIfAbsent(defender, k -> HashMultimap.create());
+            for (Card blocker : getBlockers(band)) {
+                blockerMap.put(attacker, blocker);
+            }
+        }
+    }
+    return result;
+}
     // List holds creatures who have dealt 1st strike damage to disallow them deal damage on regular basis (unless they have double-strike KW)
     private final Supplier<CardCollection> combatantsThatDealtFirstStrikeDamage = Suppliers.memoize(CardCollection::new);
 
