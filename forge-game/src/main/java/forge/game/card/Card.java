@@ -4686,7 +4686,8 @@ public class Card extends GameEntity implements Comparable<Card>, IHasSVars, ITr
     public final void setTapped(boolean tapped0) {
         if (tapped == tapped0) { return; }
         tapped = tapped0;
-        view.updateTapped(this);
+        if (getGame() != null) { getGame().fireEvent(new forge.game.event.GameEventCardTapped(this, tapped0)); }
+    view.updateTapped(this);
     }
 
     public final boolean canTap() {

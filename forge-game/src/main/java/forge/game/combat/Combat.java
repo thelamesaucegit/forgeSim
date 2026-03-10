@@ -672,6 +672,7 @@ public class Combat {
 
     // Call this method right after turn-based action of declare blockers has been performed
     public final void fireTriggersForUnblockedAttackers(final Game game) {
+        game.fireEvent(new forge.game.event.GameEventBlockersDeclared(blockedBands.get()));
         boolean bFlag = false;
         List<GameEntity> defenders = Lists.newArrayList();
         for (AttackingBand ab : attackedByBands.get().values()) {

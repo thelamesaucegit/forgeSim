@@ -1,225 +1,133 @@
-// src/forgesim/parser.ts
+import { GameState, Card, PlayerState, JsonEvent } from './types';
+import { parseZoneString, findPlayerNamesFromRawLog, findWinner } from './utils';
 
-import * as fs from "fs/promises";
-import * as path from "path";
-
-// --- TYPE DEFINITIONS ---
-export interface Card {
-  id: string;
-  name: string;
-  cardType: string; // Enriched from the dictionary
-  isTapped?: boolean;
-}
-
-export interface PlayerState {
-  name: string;
-  life: number;
-  hand: Card[];
-  librarySize: number;
-  battlefield: Card[];
-  graveyard: Card[];
-  exile: Card[];
-}
-
-export interface GameState {
-  turn: number;
-  activePlayer: string;
-  players: Record<string, PlayerState>;
-  winner?: string;
-  phase?: string;
-  stack: Card[]; 
-}
-
-interface JsonEvent {
-    type: string;
-    turnNumber?: number;
-    turnOwner?: { name: string };
-    player?: { name: string };
-    phase?: string;
-    card?: { id: number, name: string };
-    land?: { id: number, name: string };
-    from?: string;
-    to?: string;
-    amount?: number;
-    isCombat?: boolean;
-}
-
-// --- Main Parser Logic ---
 export async function postProcessLog(
     rawLog: string, 
-    validTeamIds: string[], 
     deck1Content: string, 
     deck2Content: string,
-    matchId: string,
     cardDictionary: Map<string, string>
 ): Promise<{ gameStates: GameState[], winner: string | null }> {
-
     const lines = rawLog.split('\n');
-    const LOGS_DIR = path.join(process.cwd(), "logs");
-
-    const { player1, player2 } = findPlayerNamesFromRawLog(rawLog, validTeamIds);
-    if (!player1 || !player2) {
-        console.error(`[PARSER_FATAL] Could not identify both players in the log. Valid IDs: ${validTeamIds.join(', ')}`);
-        return { gameStates: [], winner: null };
-    }
+    const { player1, player2 } = findPlayerNamesFromRawLog(rawLog);
+    if (!player1 || !player2) return { gameStates: [], winner: null };
 
     const initialState = getInitialState(player1, player2, deck1Content, deck2Content);
-    let currentState = JSON.parse(JSON.stringify(initialState));
-    const allGameStates: GameState[] = [JSON.parse(JSON.stringify(initialState))];
+    const gameStates: GameState[] = [initialState];
     
     for (const line of lines) {
         if (line.startsWith("JSON_EVENT:")) {
             try {
-                const jsonPart = line.substring("JSON_EVENT:".length);
-                const event: JsonEvent = JSON.parse(jsonPart);
-                applyJsonEvent(currentState, event, cardDictionary);
-                allGameStates.push(JSON.parse(JSON.stringify(currentState)));
-            } catch (e) {
-                // Ignore errors
-            }
+                const event: JsonEvent = JSON.parse(line.substring(11));
+                const newState = applyJsonEvent(gameStates[gameStates.length - 1], event, cardDictionary);
+                gameStates.push(newState);
+            } catch (e) {}
         }
     }
     
     const winner = findWinner(lines, [player1, player2]);
-    if (winner && allGameStates.length > 0) {
-       allGameStates[allGameStates.length - 1].winner = winner;
-    }
-
-    try {
-        const debugFilePath = path.join(LOGS_DIR, `${matchId}-debug-raw-states.json`);
-        await fs.writeFile(debugFilePath, JSON.stringify(allGameStates, null, 2));
-        console.log(`[PARSER_DEBUG] Wrote raw game states to ${debugFilePath}`);
-    } catch (e) {
-        console.error("[PARSER_DEBUG] Failed to write debug file:", e);
-    }
-
-    return { gameStates: allGameStates, winner };
+    if (winner) gameStates[gameStates.length - 1].winner = winner;
+    return { gameStates, winner };
 }
 
-function parseZoneString(zoneStr: string): { player: string | null, zone: string } | null {
-    const match = zoneStr.match(/ZoneView\[player(?:\\u003d|=)([^,]+), zoneType(?:\\u003d|=)([^\]]+)\]/);
-    if (match && match[1] && match[2]) {
-        const player = match[1] === 'null' ? null : match[1];
-        return { player, zone: match[2].toLowerCase() };
+const findCardAndZone = (state: GameState, cardId: string): { card: Card; player: PlayerState; zoneName: string; } | null => {
+    for (const player of Object.values(state.players)) {
+        for (const zoneName of ['battlefield', 'graveyard', 'exile', 'hand']) {
+            const zone = (player as any)[zoneName];
+            const card = zone.find((c: Card) => c.id === cardId);
+            if (card) return { card, player, zoneName };
+        }
     }
     return null;
 }
 
-function applyJsonEvent(state: GameState, event: JsonEvent, cardDictionary: Map<string, string>): void {
-    if (!event.type) return;
+function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: Map<string, string>): GameState {
+    const state: GameState = JSON.parse(JSON.stringify(prevState));
 
-    switch(event.type) {
-        case 'TURN_BEGAN':
-            if (event.turnNumber !== undefined && event.turnOwner?.name) {
-                state.turn = event.turnNumber;
-                state.activePlayer = event.turnOwner.name;
-            }
-            break;
-
-        case 'PHASE_CHANGED':
-            if (event.player?.name && event.phase) {
-                state.phase = `${event.player.name}'s ${event.phase} step`;
-            }
-            break;
-
-        case 'PLAYER_DAMAGED':
-            if (event.player?.name && state.players[event.player.name] && event.amount !== undefined) {
-                state.players[event.player.name].life -= event.amount;
-            }
-            break;
-
-        case 'ZONE_CHANGE':
-            const cardData = event.card || event.land; // Handle both spell and land events
-            if (!cardData || !event.from || !event.to) break;
-
-            const fromData = parseZoneString(event.from);
-            const toData = parseZoneString(event.to);
-            if (!fromData || !toData) break;
-
-            const cardIdStr = String(cardData.id);
-            const cardType = cardDictionary.get(cardData.name) || 'Unknown';
-            const cardToMove: Card = { id: cardIdStr, name: cardData.name, cardType };
-
-            let cardFoundAndRemoved = false;
-            let sourcePlayerName: string | null = fromData.player;
-
-            if (fromData.zone === 'library' && sourcePlayerName && state.players[sourcePlayerName]) {
-                state.players[sourcePlayerName].librarySize--;
-                cardFoundAndRemoved = true;
-            } else if (fromData.zone === 'stack') {
-                const stackIndex = state.stack.findIndex(c => c.id === cardIdStr);
-                if (stackIndex > -1) {
-                    state.stack.splice(stackIndex, 1);
-                    cardFoundAndRemoved = true;
-                }
-            } else if (sourcePlayerName && state.players[sourcePlayerName]) {
-                const sourceZone = (state.players[sourcePlayerName] as any)[fromData.zone];
-                if (Array.isArray(sourceZone)) {
-                    const cardIndex = sourceZone.findIndex((c: Card) => c.id === cardIdStr);
-                    if (cardIndex > -1) {
-                        sourceZone.splice(cardIndex, 1);
-                        cardFoundAndRemoved = true;
-                    }
-                }
-            }
-
-            if (!cardFoundAndRemoved) return;
-
-            if (toData.zone === 'stack') {
-                state.stack.push(cardToMove);
-            } else if (toData.player && state.players[toData.player]) {
-                const destZone = (state.players[toData.player] as any)[toData.zone];
-                if (Array.isArray(destZone)) {
-                    destZone.push(cardToMove);
-                }
-            }
-            break;
+    if (event.type === "TURN_BEGAN" && event.turnOwner?.name) {
+        state.turn = event.turnNumber!;
+        state.activePlayer = event.turnOwner.name;
+        state.players[state.activePlayer]?.battlefield.forEach(c => c.isTapped = false);
+        Object.values(state.players).forEach(p => p.battlefield.forEach(c => { c.isAttacking = false; c.isBlocking = false; }));
     }
+
+    if (event.type === "SPELL_CAST" && event.card) {
+        const cardType = cardDictionary.get(event.card.name) || 'Unknown';
+        if (cardType === 'Instant' || cardType === 'Sorcery') {
+            state.stack.push({ id: String(event.card.id), name: event.card.name, cardType });
+        }
+    }
+
+    if (event.type === "ZONE_CHANGE" && event.card) {
+        const from = parseZoneString(event.from!);
+        const to = parseZoneString(event.to!);
+        if (!from || !to) return state;
+
+        const cardId = String(event.card.id);
+        const cardType = cardDictionary.get(event.card.name) || 'Unknown';
+        
+        const cardLocation = findCardAndZone(state, cardId);
+        let cardToMove: Card;
+
+        if (cardLocation) {
+            const { player, zoneName } = cardLocation;
+            const zone = (player as any)[zoneName] as Card[];
+            const cardIndex = zone.findIndex(c => c.id === cardId);
+            [cardToMove] = zone.splice(cardIndex, 1);
+        } else {
+            cardToMove = { id: cardId, name: event.card.name, cardType };
+        }
+
+        if (from.zone === 'library' && from.player && state.players[from.player]) {
+            state.players[from.player].librarySize--;
+        }
+        
+        if (to.player && state.players[to.player]) {
+            const destZone = (state.players[to.player] as any)[to.zone];
+            if (Array.isArray(destZone)) destZone.push(cardToMove);
+        }
+        
+        // Clear stack after a spell moves from it
+        if (from.zone === 'stack') {
+            state.stack = state.stack.filter(c => c.id !== cardId);
+        }
+    }
+
+    if (event.type === "CARD_TAPPED_CHANGE" && event.card) {
+        const card = findCardAndZone(state, String(event.card.id))?.card;
+        if (card) card.isTapped = event.isTapped;
+    }
+
+    if (event.type === "ATTACKERS_DECLARED" && event.attackers) {
+        Object.keys(event.attackers).forEach(attackerId => {
+            const card = findCardAndZone(state, attackerId)?.card;
+            if (card) card.isAttacking = true;
+        });
+    }
+
+    if (event.type === "BLOCKERS_DECLARED" && event.blocks) {
+        Object.values(event.blocks).flat().forEach(blockerDto => {
+            const card = findCardAndZone(state, String(blockerDto.id))?.card;
+            if(card) card.isBlocking = true;
+        });
+    }
+
+    return state;
 }
 
 function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Content: string): GameState {
     const countCards = (content: string): number => {
         return content.split('\n').reduce((count, line) => {
             const trimmed = line.trim();
-            if (trimmed.startsWith('[') || !trimmed) return count;
-            const quantityMatch = trimmed.match(/^(\d+)\s/);
-            return count + (quantityMatch ? parseInt(quantityMatch[1], 10) : 1);
+            if (!trimmed || trimmed.startsWith('[') || trimmed.toLowerCase().includes('name=')) return count;
+            const match = trimmed.match(/^(\d+)\s/);
+            return count + (match ? parseInt(match[1], 10) : 1);
         }, 0);
     };
-    const deck1Size = countCards(d1Content);
-    const deck2Size = countCards(d2Content);
-    
     return {
-        turn: 0,
-        activePlayer: "",
+        turn: 0, activePlayer: "", stack: [],
         players: {
-            [p1Name]: { name: p1Name, life: 20, hand: [], librarySize: deck1Size, battlefield: [], graveyard: [], exile: [] },
-            [p2Name]: { name: p2Name, life: 20, hand: [], librarySize: deck2Size, battlefield: [], graveyard: [], exile: [] }
-        },
-        stack: []
-    };
-}
-
-function findPlayerNamesFromRawLog(rawLog: string, validTeamIds: string[]): { player1: string | null, player2: string | null } {
-    const regex = /^(Ai\(\d+\)-.*? \(AI: .*?\)) vs (Ai\(\d+\)-.*? \(AI: .*?\))/m;
-    const match = rawLog.match(regex);
-    if (match && match[1] && match[2]) {
-        return { player1: match[1].trim(), player2: match[2].trim() };
-    }
-    return { player1: null, player2: null };
-}
-
-function findWinner(lines: string[], players: string[]): string | null {
-    for (const line of lines) {
-        if (line.startsWith("JSON_GAME_RESULT:")) {
-            try {
-                const jsonStr = line.substring("JSON_GAME_RESULT:".length).replace(/\r?\n|\r/g, '');
-                const result = JSON.parse(jsonStr);
-                if (result.winner && players.includes(result.winner)) {
-                    return result.winner;
-                }
-            } catch(e) { console.error("Failed to parse winner JSON:", line, e); }
+            [p1Name]: { name: p1Name, life: 20, hand: [], librarySize: countCards(d1Content), battlefield: [], graveyard: [], exile: [] },
+            [p2Name]: { name: p2Name, life: 20, hand: [], librarySize: countCards(d2Content), battlefield: [], graveyard: [], exile: [] }
         }
-    }
-    return null;
+    };
 }

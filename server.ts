@@ -2,175 +2,86 @@ import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as http from 'http';
-import { createClient, SupabaseClient, RealtimeChannel } from '@supabase/supabase-js';
+import { createClient, RealtimeChannel } from '@supabase/supabase-js';
 import { postProcessLog } from './parser.js';
 import { processReplay } from './ReplayProcessor.js';
 import { WebSocket } from 'ws';
 
-// --- TYPE DEFINITION from @supabase/realtime-js ---
-type WebSocketLikeConstructor = new (
-  address: string | URL,
-  subprotocols?: string | string[] | undefined
-) => any;
-
-// --- CONFIGURATION ---
+type WebSocketLikeConstructor = new (address: string | URL, subprotocols?: string | string[] | undefined) => any;
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
 
-// --- INITIALIZATION ---
 const WsAdapter: WebSocketLikeConstructor = WebSocket;
-
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-    auth: {
-        persistSession: false,
-        autoRefreshToken: false,
-    },
-    realtime: {
-        transport: WsAdapter,
-    }
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { transport: WsAdapter }
 });
 console.log('[INIT] Supabase client initialized with type-safe WebSocket transport.');
 
-// Ensure required directories exist
 fs.mkdir(LOGS_DIR, { recursive: true });
 fs.mkdir(DECKS_DIR, { recursive: true });
 
 async function getCardDictionary(deck1Content: string, deck2Content: string): Promise<Map<string, string>> {
-    console.log('[DB_FETCH] Reading deck content to build card dictionary...');
     const cardDictionary = new Map<string, string>();
     const cardNameSet = new Set<string>();
     const cardNameRegex = /^\d*\s*(.+)/;
-
     const processContent = (content: string) => {
         content.split('\n').forEach(line => {
-            if (line.trim().startsWith('[') || !line.trim()) return;
-            const match = line.trim().match(cardNameRegex);
-            if (match && match[1]) cardNameSet.add(match[1].trim());
+            if (line.trim().startsWith('[') || !line.trim() || line.toLowerCase().includes('name=')) return;
+            const name = line.trim().replace(cardNameRegex, '$1');
+            if (name) cardNameSet.add(name);
         });
     };
-
     processContent(deck1Content);
     processContent(deck2Content);
     
     const cardNames = Array.from(cardNameSet);
-    if (cardNames.length === 0) {
-        console.error('[DB_FETCH] No card names found in deck files.');
-        return cardDictionary;
-    }
-
-    console.log(`[DB_FETCH] Querying Supabase for ${cardNames.length} unique card types...`);
-    const { data, error } = await supabase
-        .from('card_pools')
-        .select('card_name, card_type')
-        .in('card_name', cardNames);
-
-    if (error) {
-        console.error('[DB_FETCH] Error fetching card types from Supabase:', error);
-        return cardDictionary;
-    }
-
-    if (data) {
-        for (const card of data) {
-            cardDictionary.set(card.card_name, card.card_type);
-        }
-        console.log(`[DB_FETCH] Successfully built dictionary with ${cardDictionary.size} entries.`);
-    }
+    if (cardNames.length === 0) return cardDictionary;
+    
+    const { data, error } = await supabase.from('card_pools').select('card_name, card_type').in('card_name', cardNames);
+    if (error) { console.error('[DB_FETCH] Error:', error); return cardDictionary; }
+    if (data) data.forEach(c => cardDictionary.set(c.card_name, c.card_type));
     
     return cardDictionary;
 }
 
-async function spawnMatchProcess(payload: any) {
-    const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, profile1, profile2 } = payload.new;
-    console.log(`[MATCH_RECEIVED] New match received: ${matchId}`);
-    
-    const deck1Name = team1_id;
-    const deck2Name = team2_id;
-    const deck1Path = path.join(DECKS_DIR, `${deck1Name}.dck`);
-    const deck2Path = path.join(DECKS_DIR, `${deck2Name}.dck`);
+async function spawnMatchProcess({ new: payload }: any) {
+    const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_profile, player2_profile } = payload;
+    console.log(`[MATCH] Received: ${matchId} (${player1_profile} vs ${player2_profile})`);
     
     try {
-        await fs.writeFile(deck1Path, deck1_list);
-        await fs.writeFile(deck2Path, deck2_list);
-        console.log(`[FILE_WRITE] Successfully wrote ${deck1Name}.dck and ${deck2Name}.dck to disk.`);
+        await fs.writeFile(path.join(DECKS_DIR, `${team1_id}.dck`), deck1_list);
+        await fs.writeFile(path.join(DECKS_DIR, `${team2_id}.dck`), deck2_list);
 
         const cardDictionary = await getCardDictionary(deck1_list, deck2_list);
 
-        const child = spawn('java', [
-            '-Xmx1024m',
-            '-jar', 'forgeSim.jar',
-            'sim',
-            '-d', deck1Name, deck2Name,
-            '-a', profile1, profile2,
-            '-n', '1',
-        ]);
+        const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1_id, team2_id, '-a', player1_profile, player2_profile, '-n', '1']);
         
         let rawLog = '';
-        // FIX: Restore console logging for real-time troubleshooting
-        child.stdout.on('data', (data) => {
-            const chunk = data.toString();
-            rawLog += chunk;
-            console.log(`[FORGE_LOG_CHUNK] ${chunk.trim()}`);
+        child.stdout.on('data', chunk => {
+            const str = chunk.toString();
+            rawLog += str;
+            process.stdout.write(`[FORGE] ${str}`);
         });
-        child.stderr.on('data', (data) => console.error(`[JVM_STDERR] Match ${matchId}: ${data.toString().trim()}`));
+        child.stderr.on('data', data => console.error(`[JVM_ERR] ${data.toString().trim()}`));
 
-        child.on('close', async (code) => {
-            console.log(`[MATCH_COMPLETE] Match ${matchId} finished with code ${code}.`);
-
-            if (code !== 0) {
-                console.error(`[MATCH_ERROR] Java process for match ${matchId} exited with non-zero code.`);
-                return;
-            }
-
-            const { gameStates, winner } = await postProcessLog(rawLog, [team1_id, team2_id], deck1_list, deck2_list, matchId, cardDictionary);
-            
-            if (!winner) {
-                console.warn(`[POST_PROCESS_WARN] Match ${matchId} did not yield a winner.`);
-                return;
-            }
-            
+        child.on('close', async code => {
+            console.log(`[MATCH] Complete: ${matchId} (Code: ${code})`);
+            if (code !== 0) return;
+            const { gameStates, winner } = await postProcessLog(rawLog, deck1_list, deck2_list, cardDictionary);
+            if (!winner) { console.warn(`[PROCESS] No winner found for ${matchId}.`); return; }
             const finalReplay = processReplay(gameStates);
-
-            // FIX: Use the correct column name 'game_states' instead of the assumed 'game_log'
-            const { error: dbError } = await supabase
-                .from('sim_matches')
-                .update({ winner, game_states: finalReplay })
-                .eq('id', matchId);
-
-            if (dbError) {
-                console.error(`[DB_UPDATE] Error saving results for match ${matchId}:`, dbError);
-            } else {
-                console.log(`[DB_UPDATE] Successfully saved winner and processed log for match ${matchId}.`);
-            }
+            const { error: dbError } = await supabase.from('sim_matches').update({ winner, game_states: finalReplay }).eq('id', matchId);
+            if (dbError) console.error(`[DB] Update Error for ${matchId}:`, dbError);
+            else console.log(`[DB] Success for ${matchId}.`);
         });
 
-    } catch (e) {
-        console.error(`[FATAL] Unhandled exception during match process for ${matchId}:`, e);
-    }
+    } catch (e) { console.error(`[FATAL] for ${matchId}:`, e); }
 }
 
-const channel: RealtimeChannel = supabase
-    .channel('sim_matches_insert')
-    .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sim_matches' }, (payload) => {
-        spawnMatchProcess(payload);
-    })
-    .subscribe((status, err) => {
-        if (status === 'SUBSCRIBED') {
-            console.log('[SUPABASE_SUB] Successfully subscribed to sim_matches inserts!');
-        } else {
-            console.error('[SUPABASE_SUB] Subscription failed. Status:', status, 'Error:', JSON.stringify(err, null, 2));
-        }
-    });
+supabase.channel('sim_matches_insert').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sim_matches' }, spawnMatchProcess)
+    .subscribe(status => console.log(`[SUB] Status: ${status}`));
 
-http.createServer((req, res) => {
-    if (req.method === 'GET' && req.url === '/health') {
-        res.writeHead(200);
-        res.end('ok');
-    } else {
-        res.writeHead(404);
-        res.end();
-    }
-}).listen(process.env.PORT || 8080, () => {
-    console.log(`[HEALTH_CHECK] HTTP server listening on port ${process.env.PORT || 8080}.`);
-});
+http.createServer((req, res) => res.writeHead(200).end('ok')).listen(process.env.PORT || 8080, () => console.log(`[HEALTH] Listening.`));
