@@ -689,17 +689,23 @@ public class Combat {
 
     // Call this method right after turn-based action of declare blockers has been performed
     public final void fireTriggersForUnblockedAttackers(final Game game) {
- for (Player defender : getDefendingPlayers()) {
-        Map<GameEntity, Multimap<Card, Card>> blockerMap = new HashMap<>();
-        for (Entry<AttackingBand, Card> entry : blockedBands.get().entries()) {
-            if (getDefenderPlayerByAttacker(entry.getKey()) == defender) {
-                for (Card attacker : entry.getKey().getAttackers()) {
-                     blockerMap.computeIfAbsent(attacker, k -> HashMultimap.create()).put(entry.getValue(), entry.getValue());
+
+        for (Player defender : getDefendingPlayers()) {
+        Map<GameEntity, Multimap<Card, Card>> blockersForPlayer = new HashMap<>();
+        for (Card attacker : getAttackersOf(defender)) {
+            CardCollection blockers = getBlockers(attacker);
+            if (!blockers.isEmpty()) {
+                Multimap<Card, Card> blockerMap = HashMultimap.create();
+                for (Card blocker : blockers) {
+                    blockerMap.put(attacker, blocker);
                 }
+                blockersForPlayer.put(attacker, blockerMap);
             }
         }
-        if (!blockerMap.isEmpty()) {
-            game.fireEvent(new forge.game.event.GameEventBlockersDeclared(defender, blockerMap));
+
+        if (!blockersForPlayer.isEmpty()) {
+            // The constructor expects Map<GameEntity, ...>, but our keys are Card which is a GameEntity, so this is correct.
+            game.fireEvent(new forge.game.event.GameEventBlockersDeclared(defender, blockersForPlayer));
         }
     }
         boolean bFlag = false;
