@@ -1,4 +1,3 @@
-import { Player } from './types';
 
 export function parseZoneString(zoneStr: string): { player: string | null, zone: string } | null {
     const match = zoneStr.match(/ZoneView\[player(?:\\u003d|=)([^,]+), zoneType(?:\\u003d|=)([^\]]+)\]/);
