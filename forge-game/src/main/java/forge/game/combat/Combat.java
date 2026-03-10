@@ -16,6 +16,7 @@
  * along with this program.  If not, see <http://www.gnu.org/licenses/>.
  */
 package forge.game.combat;
+import com.google.common.collect.HashMultimap;
 
 import com.google.common.base.Supplier;
 import com.google.common.base.Suppliers;
@@ -688,7 +689,19 @@ public class Combat {
 
     // Call this method right after turn-based action of declare blockers has been performed
     public final void fireTriggersForUnblockedAttackers(final Game game) {
-    game.fireEvent(new forge.game.event.GameEventBlockersDeclared(playerWhoAttacks, getBlockersByAttacker()));
+ for (Player defender : getDefendingPlayers()) {
+        Map<GameEntity, Multimap<Card, Card>> blockerMap = new HashMap<>();
+        for (Entry<AttackingBand, Card> entry : blockedBands.get().entries()) {
+            if (getDefenderPlayerByAttacker(entry.getKey()) == defender) {
+                for (Card attacker : entry.getKey().getAttackers()) {
+                     blockerMap.computeIfAbsent(attacker, k -> HashMultimap.create()).put(entry.getValue(), entry.getValue());
+                }
+            }
+        }
+        if (!blockerMap.isEmpty()) {
+            game.fireEvent(new forge.game.event.GameEventBlockersDeclared(defender, blockerMap));
+        }
+    }
         boolean bFlag = false;
         List<GameEntity> defenders = Lists.newArrayList();
         for (AttackingBand ab : attackedByBands.get().values()) {
