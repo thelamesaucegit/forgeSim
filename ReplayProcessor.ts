@@ -1,92 +1,43 @@
-import { GameState } from './parser.js';
+import { GameState } from './types';
 
-/**
- * This is the final step in processing the game log. It takes the raw array of every
- * single game state change and refines it into a clean, paced, and visually appealing
- * replay log that is ready to be consumed by the front-end.
- */
 export function processReplay(rawGameStates: GameState[]): GameState[] {
-    if (!rawGameStates || rawGameStates.length === 0) {
-        return [];
-    }
+    if (!rawGameStates || rawGameStates.length === 0) return [];
 
-    const significantStates: GameState[] = [];
-    let lastState = rawGameStates[0];
-    significantStates.push(JSON.parse(JSON.stringify(lastState)));
-
-    // Debounce: Filter for only visually significant changes
+    const significantStates: GameState[] = [rawGameStates[0]];
     for (let i = 1; i < rawGameStates.length; i++) {
-        const currentState = rawGameStates[i];
-        if (isVisuallyDifferent(lastState, currentState)) {
-            significantStates.push(JSON.parse(JSON.stringify(currentState)));
-            lastState = currentState;
+        const curr = rawGameStates[i];
+        const prev = significantStates[significantStates.length - 1];
+        if (isVisuallyDifferent(prev, curr)) {
+            significantStates.push(curr);
         } else {
-            // If not different, just update the phase on the last significant state
-            if(significantStates.length > 0) {
-                significantStates[significantStates.length - 1].phase = currentState.phase;
-            }
+            prev.phase = curr.phase; // Update phase without adding a new frame
         }
     }
 
-    // Pacing: Add holds for important events
     const finalPacedReplay: GameState[] = [];
     for (let i = 0; i < significantStates.length; i++) {
-        const current = significantStates[i];
-        const prev = i > 0 ? significantStates[i - 1] : null;
-
-        // Always add the current state
-        finalPacedReplay.push(current);
-
-        // Add a "hold" frame if a significant event occurred
-        if (hasSignificantEvent(prev, current)) {
-            // Duplicate the frame to make it hold
-            finalPacedReplay.push(JSON.parse(JSON.stringify(current)));
-            finalPacedReplay.push(JSON.parse(JSON.stringify(current)));
+        finalPacedReplay.push(significantStates[i]);
+        if (hasSignificantEvent(i > 0 ? significantStates[i-1] : null, significantStates[i])) {
+            finalPacedReplay.push(JSON.parse(JSON.stringify(significantStates[i])));
         }
     }
-
     return finalPacedReplay;
 }
 
-/**
- * Compares two game states to see if a visually significant change has occurred.
- * This is used to "debounce" the raw event stream. It checks all zones and life totals.
- */
 function isVisuallyDifferent(prevState: GameState, currState: GameState): boolean {
-    return JSON.stringify(prevState.players) !== JSON.stringify(currState.players);
+    return JSON.stringify(prevState.players) !== JSON.stringify(currState.players) || JSON.stringify(prevState.stack) !== JSON.stringify(currState.stack);
 }
 
-/**
- * Compares the current state to the previous state to determine if a
- * "major" event happened that warrants a pause in the replay.
- */
 function hasSignificantEvent(prevState: GameState | null, currState: GameState): boolean {
-    if (!prevState) return true; // The very first state is always significant
-
-    // Check for life total changes
-    for (const playerName in currState.players) {
-        if (currState.players[playerName].life !== prevState.players[playerName].life) {
-            return true;
-        }
+    if (!prevState) return true;
+    if (currState.stack.length > prevState.stack.length) return true; // Spell cast
+    for (const pName in currState.players) {
+        const p1 = prevState.players[pName];
+        const p2 = currState.players[pName];
+        if (p1.life !== p2.life) return true;
+        if (p1.battlefield.length !== p2.battlefield.length) return true;
+        if (p1.graveyard.length !== p2.graveyard.length) return true;
+        if (p1.battlefield.some(c => c.isAttacking) && !p1.battlefield.every(c => c.isAttacking)) return true;
     }
-
-    // Check for creatures/permanents entering or leaving the battlefield
-    for (const playerName in currState.players) {
-        const prevBattlefield = prevState.players[playerName].battlefield;
-        const currBattlefield = currState.players[playerName].battlefield;
-        if (prevBattlefield.length !== currBattlefield.length) {
-            return true;
-        }
-    }
-    
-    // Check for cards entering the graveyard
-    for (const playerName in currState.players) {
-        const prevGraveyard = prevState.players[playerName].graveyard;
-        const currGraveyard = currState.players[playerName].graveyard;
-        if (prevGraveyard.length !== currGraveyard.length) {
-            return true;
-        }
-    }
-
     return false;
 }
