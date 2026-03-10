@@ -1,7 +1,9 @@
 import { GameState, PlayerState, Card } from './types.js';
 
 export function processReplay(rawGameStates: GameState[]): GameState[] {
-    if (!rawGameStates || rawGameStates.length === 0) return [];
+    if (!rawGameStates || rawGameStates.length === 0) {
+        return [];
+    }
 
     // 1. Debounce to get only visually significant state changes
     const significantStates: GameState[] = [rawGameStates[0]];
@@ -12,6 +14,7 @@ export function processReplay(rawGameStates: GameState[]): GameState[] {
             significantStates.push(curr);
         } else {
             // If nothing visual changed, at least update the phase on the last frame
+            // This prevents the phase from looking "stuck"
             prev.phase = curr.phase;
         }
     }
@@ -24,14 +27,14 @@ export function processReplay(rawGameStates: GameState[]): GameState[] {
     for (let i = 1; i < significantStates.length; i++) {
         finalPacedReplay.push(significantStates[i]);
         // Add a duplicate frame to "hold" on screen if a significant event just happened
-        if (hasSignificantEvent(significantStates[i-1], significantStates[i])) {
+        if (hasSignificantEvent(significantStates[i - 1], significantStates[i])) {
             finalPacedReplay.push(JSON.parse(JSON.stringify(significantStates[i])));
         }
     }
     return finalPacedReplay;
 }
 
-// A change is "visual" if a card changes zone, a player's life changes, or a spell is cast.
+// A change is "visual" if a card changes zone, a player's life changes, or a spell is cast to the stack.
 function isVisuallyDifferent(prevState: GameState, currState: GameState): boolean {
     return JSON.stringify(prevState.players) !== JSON.stringify(currState.players) || 
            JSON.stringify(prevState.stack) !== JSON.stringify(currState.stack);
@@ -42,7 +45,7 @@ function isVisuallyDifferent(prevState: GameState, currState: GameState): boolea
 function hasSignificantEvent(prevState: GameState | null, currState: GameState): boolean {
     if (!prevState) return true; // The first state is always significant
 
-    // A spell was cast
+    // A spell was cast to the stack
     if (currState.stack.length > prevState.stack.length) return true; 
     
     for (const pName in currState.players) {
