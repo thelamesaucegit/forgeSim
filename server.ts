@@ -39,9 +39,20 @@ async function getCardDictionary(decklist: string): Promise<Map<string, string>>
     return cardDictionary;
 }
 
+// FIX: Helper function to parse AI profile from player_info string
+const getAiProfile = (info: string): string => {
+    const match = info.match(/\(AI: (.*?)\)/);
+    return match ? match[1] : 'Default'; // Fallback to 'Default' if parsing fails
+};
+
 async function spawnMatchProcess({ new: payload }: any) {
-    const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_profile, player2_profile } = payload;
-    console.log(`[MATCH] Received: ${matchId} (${player1_profile} vs ${player2_profile})`);
+    const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_info, player2_info } = payload;
+    
+    // FIX: Use the helper function to get correct AI profiles
+    const profile1 = getAiProfile(player1_info);
+    const profile2 = getAiProfile(player2_info);
+
+    console.log(`[MATCH] Received: ${matchId} (${team1_id} (${profile1}) vs ${team2_id} (${profile2}))`);
     
     try {
         await fs.writeFile(path.join(DECKS_DIR, `${team1_id}.dck`), deck1_list);
@@ -49,17 +60,17 @@ async function spawnMatchProcess({ new: payload }: any) {
 
         const cardDictionary = await getCardDictionary(deck1_list + '\n' + deck2_list);
 
-        const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1_id, team2_id, '-a', player1_profile, player2_profile, '-n', '1']);
+        const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1_id, team2_id, '-a', profile1, profile2, '-n', '1']);
         
         let rawLog = '';
-        child.stdout.on('data', chunk => {
-            const str = chunk.toString();
+        child.stdout.on('data', (data: Buffer) => {
+            const str = data.toString();
             rawLog += str;
-            process.stdout.write(str); // Use process.stdout.write for continuous logging
+            process.stdout.write(str);
         });
-        child.stderr.on('data', data => console.error(`[JVM_ERR] ${data.toString().trim()}`));
+        child.stderr.on('data', (data: Buffer) => console.error(`[JVM_ERR] ${data.toString().trim()}`));
 
-        child.on('close', async code => {
+        child.on('close', async (code: number) => {
             console.log(`[MATCH] Complete: ${matchId} (Code: ${code})`);
             if (code !== 0) return;
             const { gameStates, winner } = await postProcessLog(rawLog, deck1_list, deck2_list, cardDictionary);
@@ -74,6 +85,6 @@ async function spawnMatchProcess({ new: payload }: any) {
 }
 
 supabase.channel('sim_matches_insert').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sim_matches' }, spawnMatchProcess)
-    .subscribe(status => console.log(`[SUB] Status: ${status}`));
+    .subscribe((status: string) => console.log(`[SUB] Status: ${status}`));
 
 http.createServer((req, res) => res.writeHead(200).end('ok')).listen(process.env.PORT || 8080, () => console.log(`[HEALTH] Listening.`));
