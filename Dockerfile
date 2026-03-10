@@ -23,6 +23,8 @@ COPY server.ts .
 COPY parser.ts .
 # --- FIX: Add the new ReplayProcessor.ts file to the build context ---
 COPY ReplayProcessor.ts .
+COPY types.ts .
+COPY utils.ts .
 COPY forge.profile.properties .
 
 RUN npm run build
