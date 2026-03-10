@@ -24,7 +24,7 @@ export async function postProcessLog(
                 const newState = applyJsonEvent(gameStates[gameStates.length - 1], event, cardDictionary);
                 gameStates.push(newState);
             } catch (e) {
-                // Malformed JSON, ignore.
+                // Malformed JSON, ignore and continue.
             }
         }
     }
@@ -46,6 +46,12 @@ const findCardAndZone = (state: GameState, cardId: string): CardLocation | null 
             }
         }
     }
+    // Also check the stack
+    const stackIndex = state.stack.findIndex(c => c.id === cardId);
+    if (stackIndex !== -1) {
+        // This is a bit of a hack since stack doesn't have a player owner, but it works for finding the card
+        return { player: {} as PlayerState, zoneName: 'stack', card: state.stack[stackIndex], index: stackIndex };
+    }
     return null;
 };
 
@@ -63,17 +69,29 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
                 if (activePlayerState) {
                     activePlayerState.battlefield.forEach((c: Card) => { c.isTapped = false; });
                 }
+                // Reset combat states for all creatures at the start of a turn
                 Object.values(state.players).forEach((p: PlayerState) => p.battlefield.forEach((c: Card) => { c.isAttacking = false; c.isBlocking = false; }));
             }
             break;
+        
+        case "PLAYER_DAMAGED":
+            if (event.player?.name && event.amount && state.players[event.player.name]) {
+                state.players[event.player.name].life -= event.amount;
+            }
+            break;
+
         case "SPELL_CAST":
             if (event.card) {
-                const cardType = cardDictionary.get(event.card.name) || 'Unknown';
-                if (cardType === 'Instant' || cardType === 'Sorcery') {
-                    state.stack.push({ id: String(event.card.id), name: event.card.name, cardType });
+                const cardId = String(event.card.id);
+                // When a spell is cast, it first moves from hand to stack.
+                const location = findCard(cardId);
+                if(location && location.zoneName === 'hand') {
+                    const [cardToMove] = (location.player as any)[location.zoneName].splice(location.index, 1);
+                    state.stack.push(cardToMove);
                 }
             }
             break;
+
         case "ZONE_CHANGE":
             if (event.card && event.from && event.to) {
                 const from = parseZoneString(event.from);
@@ -83,35 +101,42 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
                 const cardId = String(event.card.id);
                 const cardType = cardDictionary.get(event.card.name) || 'Unknown';
                 
-                let cardToMove: Card;
+                let cardToMove: Card | undefined;
                 const location = findCard(cardId);
 
                 if (location) {
-                    const zone = (location.player as any)[location.zoneName] as Card[];
-                    cardToMove = zone.splice(location.index, 1)[0];
+                    if (location.zoneName === 'stack') {
+                        cardToMove = state.stack.splice(location.index, 1)[0];
+                    } else {
+                        const zone = (location.player as any)[location.zoneName] as Card[];
+                        cardToMove = zone.splice(location.index, 1)[0];
+                    }
                 } else {
                     if (from.zone === 'library' && from.player && state.players[from.player]) {
                         state.players[from.player].librarySize--;
                     }
                     cardToMove = { id: cardId, name: event.card.name, cardType };
                 }
-                
-                if (to.player && state.players[to.player]) {
-                    const destZone = (state.players[to.player] as any)[to.zone];
-                    if (Array.isArray(destZone)) destZone.push(cardToMove);
-                }
-                
-                if (from.zone === 'stack') {
-                    state.stack = state.stack.filter((c: Card) => c.id !== cardId);
+
+                if (to.player && state.players[to.player] && cardToMove) {
+                    const destZoneKey = to.zone.toLowerCase();
+                    const destZone = (state.players[to.player] as any)[destZoneKey];
+                    if (Array.isArray(destZone)) {
+                        destZone.push(cardToMove);
+                    }
+                } else if (to.zone === 'stack' && cardToMove) {
+                    state.stack.push(cardToMove);
                 }
             }
             break;
+
         case "CARD_TAPPED_CHANGE":
             if (event.card && typeof event.isTapped === 'boolean') {
                 const loc = findCard(String(event.card.id));
                 if (loc) loc.card.isTapped = event.isTapped;
             }
             break;
+
         case "ATTACKERS_DECLARED":
             if (event.attackers) {
                 Object.keys(event.attackers).forEach(attackerId => {
@@ -120,8 +145,9 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
                 });
             }
             break;
+            
         case "BLOCKERS_DECLARED":
-            if (event.blocks) {
+             if (event.blocks) {
                 Object.values(event.blocks).flat().forEach((blockerDto: any) => {
                     const loc = findCard(String(blockerDto.id));
                     if(loc) loc.card.isBlocking = true;
