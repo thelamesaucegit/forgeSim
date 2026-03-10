@@ -1,3 +1,4 @@
+// Defines the structure for a single card in any zone.
 export interface Card {
   id: string;
   name: string;
@@ -7,6 +8,7 @@ export interface Card {
   isBlocking?: boolean;
 }
 
+// Defines the state of a single player.
 export interface PlayerState {
   name: string;
   life: number;
@@ -17,6 +19,7 @@ export interface PlayerState {
   exile: Card[];
 }
 
+// Defines the entire state of the game at a single point in time.
 export interface GameState {
   turn: number;
   activePlayer: string;
@@ -26,6 +29,15 @@ export interface GameState {
   stack: Card[];
 }
 
+// A helper interface for locating a card within the game state.
+export interface CardLocation {
+    card: Card;
+    player: PlayerState | null; // Player can be null if card is on the global stack.
+    zoneName: string;
+    index: number;
+}
+
+// Defines the structure of the JSON events parsed from the raw log.
 export interface JsonEvent {
     type: string;
     turnNumber?: number;
@@ -37,12 +49,6 @@ export interface JsonEvent {
     from?: string;
     to?: string;
     player?: { name: string };
+    amount?: number;
     phase?: string;
-}
-
-export interface CardLocation {
-    card: Card;
-    player: PlayerState;
-    zoneName: string;
-    index: number;
 }
