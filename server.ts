@@ -22,6 +22,7 @@ const WebSocketAdapter = (url: string, protocols: string | string[] | undefined)
 }
 
 // --- INITIALIZATION ---
+// FIX: Explicitly set the WebSocket transport to work around Node.js v20 issues.
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: {
         persistSession: false,
