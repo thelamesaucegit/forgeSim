@@ -70,6 +70,22 @@ public class Combat {
     private final Supplier<CardCollection> lkiCache = Suppliers.memoize(CardCollection::new);
     private final Supplier<CardDamageMap> damageMap = Suppliers.memoize(CardDamageMap::new);
 
+   
+    private Map<GameEntity, Multimap<Card, Card>> getBlockersByAttacker() {
+    Map<GameEntity, Multimap<Card, Card>> result = new HashMap<>();
+    for (AttackingBand band : getAttackingBands()) {
+        for (Card attacker : band.getAttackers()) {
+            GameEntity defender = getDefenderByAttacker(attacker);
+            if (defender == null) continue;
+
+            Multimap<Card, Card> blockerMap = result.computeIfAbsent(defender, k -> HashMultimap.create());
+            for (Card blocker : getBlockers(band)) {
+                blockerMap.put(attacker, blocker);
+            }
+        }
+    }
+    return result;
+}
     // List holds creatures who have dealt 1st strike damage to disallow them deal damage on regular basis (unless they have double-strike KW)
     private final Supplier<CardCollection> combatantsThatDealtFirstStrikeDamage = Suppliers.memoize(CardCollection::new);
 
@@ -672,7 +688,7 @@ public class Combat {
 
     // Call this method right after turn-based action of declare blockers has been performed
     public final void fireTriggersForUnblockedAttackers(final Game game) {
-        game.fireEvent(new forge.game.event.GameEventBlockersDeclared(blockedBands.get()));
+    game.fireEvent(new forge.game.event.GameEventBlockersDeclared(playerWhoAttacks, getBlockersByAttacker()));
         boolean bFlag = false;
         List<GameEntity> defenders = Lists.newArrayList();
         for (AttackingBand ab : attackedByBands.get().values()) {
