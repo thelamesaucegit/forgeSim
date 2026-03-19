@@ -7,7 +7,19 @@ export function parseZoneString(zoneStr: string): { player: string | null, zone:
     }
     return null;
 }
+ // Fallback: raw Zone.toString() for the stack → "Stack"
+    if (zoneStr === 'Stack') {
+        return { player: null, zone: 'stack' };
+    }
 
+    // Fallback: raw PlayerZone.toString() → "PlayerName's Graveyard"
+    const possessiveMatch = zoneStr.match(/^(.+)'s (.+)$/);
+    if (possessiveMatch) {
+        return { player: possessiveMatch[1], zone: possessiveMatch[2].toLowerCase() };
+    }
+
+    return null;
+}
 export function findPlayerNamesFromRawLog(rawLog: string): { player1: string | null, player2: string | null } {
     // This regex finds the line "PlayerName1 vs PlayerName2 - one game of Constructed"
     const regex = /^(Ai\(1\)-.*? \(AI: .*?\)) vs (Ai\(2\)-.*? \(AI: .*?\))/m;
