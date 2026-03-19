@@ -81,18 +81,7 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
             }
             break;
 
-        case "SPELL_CAST":
-            if (event.card) {
-                const cardId = String(event.card.id);
-                const location = findCardAndZone(state, cardId);
-                // Move from hand to stack. Other casts (e.g. flashback) are handled by ZONE_CHANGE.
-                if(location && location.zoneName === 'hand' && location.player) {
-                    const [cardToMove] = location.player.hand.splice(location.index, 1);
-                    cardToMove.cardType = cardDictionary.get(cardToMove.name) || 'Unknown';
-                    state.stack.push(cardToMove);
-                }
-            }
-            break;
+      
 
         case "ZONE_CHANGE":
             if (event.card && event.from && event.to) {
