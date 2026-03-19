@@ -121,19 +121,23 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
                 }
 
                 if (cardToMove) {
-                    cardToMove.cardType = cardType; 
-                    if (to.player && state.players[to.player]) {
-                        const destZoneKey = to.zone.toLowerCase();
-                        if (destZoneKey === 'library') {
-                             state.players[to.player].librarySize++; // Correctly handle mulligans
-                        } else {
-                            const destZone = (state.players[to.player] as any)[destZoneKey];
-                            if (Array.isArray(destZone)) {
-                                destZone.push(cardToMove);
-                            }
-                        }
-                    }
-                }
+    cardToMove.cardType = cardType;
+
+    if (to.zone === 'stack') {
+        // Stack is a global zone with no player — handle explicitly
+        state.stack.push(cardToMove);
+    } else if (to.player && state.players[to.player]) {
+        const destZoneKey = to.zone.toLowerCase();
+        if (destZoneKey === 'library') {
+            state.players[to.player].librarySize++;
+        } else {
+            const destZone = (state.players[to.player] as any)[destZoneKey];
+            if (Array.isArray(destZone)) {
+                destZone.push(cardToMove);
+            }
+        }
+    }
+}
             }
             break;
 
