@@ -1,12 +1,12 @@
 export function parseZoneString(zoneStr: string): { player: string | null, zone: string } | null {
-    // This regex handles the two formats we've seen: ZoneView[player=... and ZoneView[player\u003d...
-    const match = zoneStr.match(/ZoneView\[player(?:\\u003d|=)([^,]+), zoneType(?:\\u003d|=)([^\]]+)\]/);
-    if (match && match[1] && match[2]) {
-        // Normalize the zone name to lowercase to match our GameState properties (e.g., 'Battlefield' -> 'battlefield')
-        return { player: match[1] === 'null' ? null : match[1], zone: match[2].toLowerCase() };
+    // Primary format from ZoneView objects: ZoneView[player=X, zoneType=Y]
+    const zoneViewMatch = zoneStr.match(/ZoneView\[player(?:\\u003d|=)([^,]+), zoneType(?:\\u003d|=)([^\]]+)\]/);
+    if (zoneViewMatch && zoneViewMatch[1] && zoneViewMatch[2]) {
+        return { 
+            player: zoneViewMatch[1] === 'null' ? null : zoneViewMatch[1], 
+            zone: zoneViewMatch[2].toLowerCase() 
+        };
     }
-    return null;
-}
  // Fallback: raw Zone.toString() for the stack → "Stack"
     if (zoneStr === 'Stack') {
         return { player: null, zone: 'stack' };
