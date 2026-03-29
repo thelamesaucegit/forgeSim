@@ -81,18 +81,7 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
             }
             break;
 
-        case "SPELL_CAST":
-            if (event.card) {
-                const cardId = String(event.card.id);
-                const location = findCardAndZone(state, cardId);
-                // Move from hand to stack. Other casts (e.g. flashback) are handled by ZONE_CHANGE.
-                if(location && location.zoneName === 'hand' && location.player) {
-                    const [cardToMove] = location.player.hand.splice(location.index, 1);
-                    cardToMove.cardType = cardDictionary.get(cardToMove.name) || 'Unknown';
-                    state.stack.push(cardToMove);
-                }
-            }
-            break;
+      
 
         case "ZONE_CHANGE":
             if (event.card && event.from && event.to) {
@@ -121,19 +110,23 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
                 }
 
                 if (cardToMove) {
-                    cardToMove.cardType = cardType; 
-                    if (to.player && state.players[to.player]) {
-                        const destZoneKey = to.zone.toLowerCase();
-                        if (destZoneKey === 'library') {
-                             state.players[to.player].librarySize++; // Correctly handle mulligans
-                        } else {
-                            const destZone = (state.players[to.player] as any)[destZoneKey];
-                            if (Array.isArray(destZone)) {
-                                destZone.push(cardToMove);
-                            }
-                        }
-                    }
-                }
+    cardToMove.cardType = cardType;
+
+    if (to.zone === 'stack') {
+        // Stack is a global zone with no player — handle explicitly
+        state.stack.push(cardToMove);
+    } else if (to.player && state.players[to.player]) {
+        const destZoneKey = to.zone.toLowerCase();
+        if (destZoneKey === 'library') {
+            state.players[to.player].librarySize++;
+        } else {
+            const destZone = (state.players[to.player] as any)[destZoneKey];
+            if (Array.isArray(destZone)) {
+                destZone.push(cardToMove);
+            }
+        }
+    }
+}
             }
             break;
 
