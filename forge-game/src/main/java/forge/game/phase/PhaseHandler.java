@@ -222,6 +222,7 @@ public class PhaseHandler implements java.io.Serializable {
                 return turn == 1 && game.getPlayers().size() == 2;
 
             case COMBAT_BEGIN:
+                
             case COMBAT_DECLARE_ATTACKERS:
                 return playerTurn.isSkippingCombat();
 
@@ -300,6 +301,8 @@ public class PhaseHandler implements java.io.Serializable {
                     nCombatsThisTurn++;
                     combat = new Combat(playerTurn);
                     game.getBeginOfCombat().executeUntil(playerTurn);
+                                ArgentumStateLogger.logState(game, "COMBAT_BEGIN_STEP");
+
                     //PhaseUtil.verifyCombat();
                     break;
 
@@ -310,6 +313,8 @@ public class PhaseHandler implements java.io.Serializable {
                     game.getStack().unfreezeStack();
 
                     givePriorityToPlayer = inCombat();
+                                ArgentumStateLogger.logState(game, "DECLARE_ATTACKERS_STEP");
+
                     break;
 
                 case COMBAT_DECLARE_BLOCKERS:
@@ -317,6 +322,8 @@ public class PhaseHandler implements java.io.Serializable {
                     game.getStack().freezeStack(null);
                     declareBlockersTurnBasedAction();
                     game.getStack().unfreezeStack();
+                                ArgentumStateLogger.logState(game, "DECLARE_BLOCKERS_STEP");
+
                     break;
 
                 case COMBAT_FIRST_STRIKE_DAMAGE:
