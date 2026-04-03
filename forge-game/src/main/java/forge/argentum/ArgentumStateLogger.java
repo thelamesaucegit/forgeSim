@@ -3,15 +3,16 @@ package forge.argentum;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
-import forge.argentum.data.ArgentumData.*; // Import all our nested data classes
+import forge.argentum.data.ArgentumData.*;
 import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.player.Player;
 import forge.game.zone.Zone;
 
-import java.sql.Connection;
-import java.sql.DriverManager;
-import java.sql.PreparedStatement;
+import java.net.URI;
+import java.net.http.HttpClient;
+import java.net.http.HttpRequest;
+import java.net.http.HttpResponse;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
@@ -19,86 +20,94 @@ import java.util.List;
 
 public class ArgentumStateLogger {
 
-    // Reuse the same Gson instance logic from JsonGameListener
     private static final Gson gson = new GsonBuilder().setLenient().create();
+    private static final HttpClient httpClient = HttpClient.newHttpClient();
 
-    // Configuration
-    private static final String DB_URL = "jdbc:postgresql://your-supabase-project-ref.db.supabase.co:5432/postgres";
-    private static final String DB_USER = "postgres";
-    private static final String DB_PASSWORD = "your-supabase-db-password";
-    private static final String INSERT_SQL = "INSERT INTO your_match_logs_table (match_id, argentum_game_states) VALUES (?, ?::jsonb) ON CONFLICT (match_id) DO UPDATE SET argentum_game_states = your_match_logs_table.argentum_game_states || ?::jsonb;";
+    // The URL for our new Next.js API route
+    private static final String LOG_ENDPOINT_URL = "http://localhost:3000/api/log-state"; // Default Next.js port
 
-
-    /**
-     * The main hook method. It creates a full snapshot of the game state.
-     */
     public static void logState(Game game, String currentStep) {
         try {
             SpectatorStateUpdate snapshot = createSnapshotFromGame(game, currentStep);
             String jsonSnapshot = gson.toJson(snapshot);
-            
-            // To avoid conflicts and ensure states are appended, we'll send a JSON array
-            String jsonToInsert = "[" + jsonSnapshot + "]";
-
-            saveToDatabase(game.getMatch().getMatchId(), jsonToInsert);
+            sendStateToLogServer(game.getMatch().getMatchId(), jsonSnapshot);
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger Error: Failed to log state.");
+            System.err.println("ArgentumStateLogger Error: Failed to log state for step: " + currentStep);
             e.printStackTrace();
         }
     }
 
+    private static void sendStateToLogServer(String matchId, String jsonState) {
+        // We create a simple JSON payload to send to our Next.js API route.
+        String requestBody = "{\"matchId\": \"" + matchId + "\", \"state\": " + jsonState + "}";
+
+        HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(LOG_ENDPOINT_URL))
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(requestBody))
+                .build();
+
+        // Send the request asynchronously. We don't need to wait for the response.
+        httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenApply(HttpResponse::body)
+                .thenAccept(System.out::println)
+                .exceptionally(e -> {
+                    System.err.println("ArgentumStateLogger: Failed to send log to server: " + e.getMessage());
+                    return null;
+                });
+    }
+    
+    // The createSnapshotFromGame and helper methods remain UNCHANGED from the previous step.
+    // They are included here for completeness.
+    
     private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
         ClientGameState gameState = new ClientGameState();
         
         List<Player> players = game.getPlayers();
+        if (players.size() < 2) {
+            throw new IllegalStateException("Game must have at least two players to log.");
+        }
         Player player1 = players.get(0);
         Player player2 = players.get(1);
 
-        // 1. Populate top-level snapshot info
         snapshot.gameSessionId = game.getMatch().getMatchId();
-        snapshot.player1Id = player1.getId().toString();
-        snapshot.player2Id = player2.getId().toString();
+        snapshot.player1Id = String.valueOf(player1.getId());
+        snapshot.player2Id = String.valueOf(player2.getId());
         snapshot.player1Name = player1.getName();
         snapshot.player2Name = player2.getName();
         snapshot.currentPhase = game.getPhaseHandler().getPhase().name();
-        snapshot.activePlayerId = game.getPhaseHandler().getPlayerTurn().getId().toString();
-        snapshot.priorityPlayerId = game.getPhaseHandler().getPriorityPlayer() != null ? game.getPhaseHandler().getPriorityPlayer().getId().toString() : null;
+        snapshot.activePlayerId = String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
+        snapshot.priorityPlayerId = game.getPhaseHandler().getPriorityPlayer() != null ? String.valueOf(game.getPhaseHandler().getPriorityPlayer().getId()) : null;
 
-        // 2. Populate ClientGameState
-        // 2a. All Cards
         gameState.cards = new HashMap<>();
         for (Card card : game.getCardsInGame()) {
             gameState.cards.put(String.valueOf(card.getId()), createClientCard(card));
         }
 
-        // 2b. All Zones
         gameState.zones = new ArrayList<>();
         for (Zone zone : game.getZones()) {
             gameState.zones.add(createClientZone(zone));
         }
         
-        // 2c. All Players
         gameState.players = new ArrayList<>();
         for(Player p : players) {
             gameState.players.add(createClientPlayer(p));
         }
 
-        // 2d. Scalar Game State Values
         gameState.currentPhase = snapshot.currentPhase;
         gameState.currentStep = currentStep;
         gameState.activePlayerId = snapshot.activePlayerId;
         gameState.priorityPlayerId = snapshot.priorityPlayerId;
         gameState.turnNumber = game.getPhaseHandler().getTurn();
         gameState.isGameOver = game.isGameOver();
-        gameState.winnerId = game.getWinner() != null ? game.getWinner().getWinningPlayer().getId().toString() : null;
-        gameState.gameLog = Collections.singletonList("> Turn " + gameState.turnNumber + ": " + currentStep);
+        gameState.winnerId = game.getWinner() != null ? String.valueOf(game.getWinner().getWinningPlayer().getId()) : null;
+        gameState.gameLog = Collections.singletonList("> Turn " + gameState.turnNumber + ": " + currentStep.replace("_", " "));
 
         snapshot.gameState = gameState;
         return snapshot;
     }
 
-    // Helper methods to transform Forge objects into our Argentum data models
     private static ClientCard createClientCard(Card card) {
         ClientCard cc = new ClientCard();
         cc.entityId = String.valueOf(card.getId());
@@ -109,15 +118,16 @@ public class ArgentumStateLogger {
         cc.power = card.hasPower() ? card.getNetPower() : null;
         cc.toughness = card.hasToughness() ? card.getNetToughness() : null;
         cc.damage = card.getDamage();
-        cc.targets = new ArrayList<>(); // To be populated later
+        cc.targets = new ArrayList<>();
         return cc;
     }
 
     private static ClientZone createClientZone(Zone zone) {
         ClientZone cz = new ClientZone();
         cz.type = zone.getZoneType().name();
-        cz.ownerId = zone.getOwner() != null ? String.valueOf(zone.getOwner().getId()) : "game";
-        cz.zoneId = cz.type + "_" + cz.ownerId;
+        String ownerId = zone.getOwner() != null ? String.valueOf(zone.getOwner().getId()) : "game";
+        cz.ownerId = ownerId;
+        cz.zoneId = cz.type + "_" + ownerId;
 
         cz.cardIds = new ArrayList<>();
         for (Card card : zone.getCards()) {
@@ -132,17 +142,5 @@ public class ArgentumStateLogger {
         cp.name = player.getName();
         cp.life = player.getLife();
         return cp;
-    }
-
-    private static void saveToDatabase(String matchId, String jsonStateArray) throws Exception {
-        // Using an UPSERT to append to the JSONB array if the row already exists
-        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
-             PreparedStatement pstmt = conn.prepareStatement(INSERT_SQL)) {
-            
-            pstmt.setString(1, matchId);
-            pstmt.setString(2, jsonStateArray); // For the INSERT case
-            pstmt.setString(3, jsonStateArray); // For the UPDATE case
-            pstmt.executeUpdate();
-        }
     }
 }
