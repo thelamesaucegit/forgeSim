@@ -57,6 +57,7 @@ public class ArgentumData {
         public Integer power;
         public Integer toughness;
         public int damage;
+        public String attachedTo = null;
         public List<Object> targets; // To be defined later
     }
 
