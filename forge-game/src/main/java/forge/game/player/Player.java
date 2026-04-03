@@ -43,7 +43,7 @@ import forge.game.replacement.ReplacementHandler;
 import forge.game.replacement.ReplacementResult;
 import forge.game.replacement.ReplacementType;
 import forge.game.spellability.AbilitySub;
-
+import forge.argentum.ArgentumStateLogger;
 import forge.game.spellability.AlternativeCost;
 import forge.game.spellability.SpellAbility;
 import forge.game.staticability.*;
@@ -1262,6 +1262,11 @@ public class Player extends GameEntity implements Comparable<Player> {
         else { // Lose by milling is always on. Give AI many cards it cannot play if you want it not to undertake actions
             triedToDrawFromEmptyLibrary = true;
         }
+        if (!drawn.isEmpty()) {
+        // The phase handler will tell us if we are in the draw step or not.
+        String stepName = game.getPhaseHandler().is(PhaseType.DRAW) ? "DRAW_STEP" : "EFFECT_DRAW";
+        ArgentumStateLogger.logState(game, stepName);
+    }
         return drawn;
     }
 
