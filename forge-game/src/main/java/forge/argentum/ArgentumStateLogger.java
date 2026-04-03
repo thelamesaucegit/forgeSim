@@ -138,6 +138,9 @@ public class ArgentumStateLogger {
         cc.power = card.hasPower() ? card.getNetPower() : null;
         cc.toughness = card.hasToughness() ? card.getNetToughness() : null;
         cc.damage = card.getDamage();
+         if (card.isAttached()) {
+        cc.attachedTo = String.valueOf(card.getAttachedTo().getId());
+    }
         cc.targets = new ArrayList<>();
         return cc;
     }
