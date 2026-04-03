@@ -22,6 +22,7 @@ import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
 import com.google.common.collect.Multimap;
 import com.google.common.collect.MultimapBuilder;
+import forge.argentum.ArgentumStateLogger;
 
 import forge.game.*;
 import forge.game.ability.AbilityKey;
@@ -261,6 +262,7 @@ public class PhaseHandler implements java.io.Serializable {
                     if (playerTurn.getCardsIn(ZoneType.Battlefield).anyMatch(Card::isContraption)) {
                         playerTurn.advanceCrankCounter();
                     }
+            ArgentumStateLogger.logState(game, "UPKEEP_STEP");
 
                     break;
 
