@@ -28,7 +28,7 @@ public class ArgentumData {
         public String activePlayerId;
         public String priorityPlayerId;
         public boolean isReplay = true;
-        public Object combat = null; // To be defined later
+        public CombatState combat = null;  // To be defined later
     }
 
     public static class ClientGameState {
@@ -42,7 +42,7 @@ public class ArgentumData {
         public int turnNumber;
         public boolean isGameOver;
         public String winnerId;
-        public Object combat = null; // To be defined later
+        public CombatState combat = null;  // To be defined later
         public List<String> gameLog;
     }
 
