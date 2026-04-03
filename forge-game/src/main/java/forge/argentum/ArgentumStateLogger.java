@@ -8,7 +8,7 @@ import forge.game.Game;
 import forge.game.card.Card;
 import forge.game.player.Player;
 import forge.game.zone.Zone;
-
+import forge.game.combat.Combat; 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,6 +22,24 @@ public class ArgentumStateLogger {
 
     private static final Gson gson = new GsonBuilder().setLenient().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
+ private static CombatState createCombatState(Combat combat) {
+        if (combat == null) {
+            return null;
+        }
+        CombatState cs = new CombatState();
+        for (Card attacker : combat.getAttackers()) {
+            cs.attackers.add(String.valueOf(attacker.getId()));
+            
+            CombatGroup group = new CombatGroup();
+            group.attackerId = String.valueOf(attacker.getId());
+            
+            for (Card blocker : combat.getBlockers(attacker)) {
+                group.blockers.add(String.valueOf(blocker.getId()));
+            }
+            cs.groups.add(group);
+        }
+        return cs;
+    }
 
     // The URL for our new Next.js API route
     private static final String LOG_ENDPOINT_URL = "http://localhost:3000/api/log-state"; // Default Next.js port
@@ -94,7 +112,9 @@ public class ArgentumStateLogger {
         for(Player p : players) {
             gameState.players.add(createClientPlayer(p));
         }
-
+ Combat currentCombat = game.getPhaseHandler().getCombat();
+        snapshot.combat = createCombatState(currentCombat);
+        gameState.combat = createCombatState(currentCombat);
         gameState.currentPhase = snapshot.currentPhase;
         gameState.currentStep = currentStep;
         gameState.activePlayerId = snapshot.activePlayerId;
