@@ -100,7 +100,7 @@ public class ArgentumStateLogger {
 
         gameState.cards = new HashMap<>();
         for (Card card : game.getCardsInGame()) {
-            gameState.cards.put(String.valueOf(card.getId()), createClientCard(card));
+            gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat));
         }
 
         gameState.zones = new ArrayList<>();
@@ -128,13 +128,20 @@ public class ArgentumStateLogger {
         return snapshot;
     }
 
-    private static ClientCard createClientCard(Card card) {
+    private static ClientCard createClientCard(Card card, Combat combat) {
         ClientCard cc = new ClientCard();
         cc.entityId = String.valueOf(card.getId());
         cc.name = card.getName();
         cc.imageUri = card.getImageUrl();
         cc.cardTypes = new ArrayList<>(card.getCurrentCardTypes());
         cc.isTapped = card.isTapped();
+        if (combat != null) {
+            cc.isAttacking = combat.isAttacking(card);
+            cc.isBlocking = combat.isBlocking(card);
+        } else {
+            cc.isAttacking = false;
+            cc.isBlocking = false;
+        }
         cc.power = card.hasPower() ? card.getNetPower() : null;
         cc.toughness = card.hasToughness() ? card.getNetToughness() : null;
         cc.damage = card.getDamage();
