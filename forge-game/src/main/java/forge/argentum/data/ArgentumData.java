@@ -7,6 +7,16 @@ import java.util.Map;
 // Using static nested classes keeps all our data models in one file.
 public class ArgentumData {
 
+    public static class CombatState {
+        public List<CombatGroup> groups = new ArrayList<>();
+        public List<String> attackers = new ArrayList<>();
+    }
+
+    public static class CombatGroup {
+        public String attackerId;
+        public List<String> blockers = new ArrayList<>();
+    }
+}
     public static class SpectatorStateUpdate {
         public String gameSessionId;
         public ClientGameState gameState;
