@@ -44,7 +44,7 @@ import forge.game.trigger.Trigger;
 import forge.game.trigger.TriggerType;
 import forge.util.IterableUtil;
 import forge.util.TextUtil;
-
+import forge.argentum.ArgentumStateLogger;
 import java.util.*;
 import java.util.Map.Entry;
 import java.util.concurrent.LinkedBlockingDeque;
@@ -526,6 +526,8 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
                 p.updateFlashbackForView();
             }
         }
+            ArgentumStateLogger.logState(game, "ACTION_CAST_SPELL");
+
     }
 
     private void recordUndoableActions(SpellAbility sp, Player activator) {
@@ -697,6 +699,8 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
         game.getPhaseHandler().onStackResolved();
 
         curResolvingCard = null;
+            ArgentumStateLogger.logState(game, "ACTION_RESOLVE_SPELL");
+
     }
 
     private void removeCardFromStack(final SpellAbility sa, final SpellAbilityStackInstance si, final boolean fizzle) {
