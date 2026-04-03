@@ -336,7 +336,10 @@ public class PhaseHandler implements java.io.Serializable {
                         givePriorityToPlayer = false;
                     } else {
                         combat.dealAssignedDamage();
+                                        ArgentumStateLogger.logState(game, "FIRST_STRIKE_DAMAGE_STEP");
+
                     }
+                
                     break;
 
                 case COMBAT_DAMAGE:
@@ -348,6 +351,7 @@ public class PhaseHandler implements java.io.Serializable {
                         givePriorityToPlayer = false;
                     } else {
                         combat.dealAssignedDamage();
+                                        ArgentumStateLogger.logState(game, "COMBAT_DAMAGE_STEP");
                     }
                     break;
 
@@ -357,6 +361,7 @@ public class PhaseHandler implements java.io.Serializable {
                         c.onEndOfCombat(playerTurn);
                     }
                     game.getEndOfCombat().executeAt();
+            ArgentumStateLogger.logState(game, "END_COMBAT_STEP");
 
                     //SDisplayUtil.showTab(EDocID.REPORT_STACK.getDoc());
                     break;
