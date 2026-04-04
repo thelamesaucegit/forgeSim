@@ -5,10 +5,16 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
 import forge.game.Game;
+import forge.game.GameObject;
 import forge.game.card.Card;
-import forge.game.player.Player;
-import forge.game.zone.Zone;
 import forge.game.combat.Combat; 
+import forge.game.player.Player;
+import forge.game.spellability.SpellAbility;
+import forge.game.spellability.SpellAbilityStackInstance;
+import forge.game.zone.MagicStack; 
+import forge.game.zone.Zone;
+import forge.game.zone.ZoneType;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -22,27 +28,7 @@ public class ArgentumStateLogger {
 
     private static final Gson gson = new GsonBuilder().setLenient().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
- private static CombatState createCombatState(Combat combat) {
-        if (combat == null) {
-            return null;
-        }
-        CombatState cs = new CombatState();
-        for (Card attacker : combat.getAttackers()) {
-            cs.attackers.add(String.valueOf(attacker.getId()));
-            
-            CombatGroup group = new CombatGroup();
-            group.attackerId = String.valueOf(attacker.getId());
-            
-            for (Card blocker : combat.getBlockers(attacker)) {
-                group.blockers.add(String.valueOf(blocker.getId()));
-            }
-            cs.groups.add(group);
-        }
-        return cs;
-    }
-
-    // The URL for our new Next.js API route
-    private static final String LOG_ENDPOINT_URL = "http://localhost:3000/api/log-state"; // Default Next.js port
+    private static final String LOG_ENDPOINT_URL = "http://localhost:3000/api/log-state";
 
     public static void logState(Game game, String currentStep) {
         try {
@@ -56,32 +42,22 @@ public class ArgentumStateLogger {
     }
 
     private static void sendStateToLogServer(String matchId, String jsonState) {
-        // We create a simple JSON payload to send to our Next.js API route.
         String requestBody = "{\"matchId\": \"" + matchId + "\", \"state\": " + jsonState + "}";
-
         HttpRequest request = HttpRequest.newBuilder()
                 .uri(URI.create(LOG_ENDPOINT_URL))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
-
-        // Send the request asynchronously. We don't need to wait for the response.
         httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .thenApply(HttpResponse::body)
-                .thenAccept(System.out::println)
                 .exceptionally(e -> {
                     System.err.println("ArgentumStateLogger: Failed to send log to server: " + e.getMessage());
                     return null;
                 });
     }
-    
-    // The createSnapshotFromGame and helper methods remain UNCHANGED from the previous step.
-    // They are included here for completeness.
-    
+
     private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
         ClientGameState gameState = new ClientGameState();
-        
         List<Player> players = game.getPlayers();
         if (players.size() < 2) {
             throw new IllegalStateException("Game must have at least two players to log.");
@@ -89,6 +65,10 @@ public class ArgentumStateLogger {
         Player player1 = players.get(0);
         Player player2 = players.get(1);
 
+        Combat currentCombat = game.getPhaseHandler().getCombat();
+        MagicStack stack = game.getStack(); // Get the stack object
+
+        // 1. Populate top-level snapshot info
         snapshot.gameSessionId = game.getMatch().getMatchId();
         snapshot.player1Id = String.valueOf(player1.getId());
         snapshot.player2Id = String.valueOf(player2.getId());
@@ -97,10 +77,13 @@ public class ArgentumStateLogger {
         snapshot.currentPhase = game.getPhaseHandler().getPhase().name();
         snapshot.activePlayerId = String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
         snapshot.priorityPlayerId = game.getPhaseHandler().getPriorityPlayer() != null ? String.valueOf(game.getPhaseHandler().getPriorityPlayer().getId()) : null;
+        snapshot.combat = createCombatState(currentCombat);
 
+        // 2. Populate ClientGameState
         gameState.cards = new HashMap<>();
         for (Card card : game.getCardsInGame()) {
-            gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat));
+            // Pass the stack object to the helper
+            gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
         }
 
         gameState.zones = new ArrayList<>();
@@ -112,9 +95,7 @@ public class ArgentumStateLogger {
         for(Player p : players) {
             gameState.players.add(createClientPlayer(p));
         }
- Combat currentCombat = game.getPhaseHandler().getCombat();
-        snapshot.combat = createCombatState(currentCombat);
-        gameState.combat = createCombatState(currentCombat);
+
         gameState.currentPhase = snapshot.currentPhase;
         gameState.currentStep = currentStep;
         gameState.activePlayerId = snapshot.activePlayerId;
@@ -123,18 +104,21 @@ public class ArgentumStateLogger {
         gameState.isGameOver = game.isGameOver();
         gameState.winnerId = game.getWinner() != null ? String.valueOf(game.getWinner().getWinningPlayer().getId()) : null;
         gameState.gameLog = Collections.singletonList("> Turn " + gameState.turnNumber + ": " + currentStep.replace("_", " "));
+        gameState.combat = createCombatState(currentCombat);
 
         snapshot.gameState = gameState;
         return snapshot;
     }
 
-    private static ClientCard createClientCard(Card card, Combat combat) {
+    // MODIFIED createClientCard to include stack logic
+    private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
         ClientCard cc = new ClientCard();
         cc.entityId = String.valueOf(card.getId());
         cc.name = card.getName();
         cc.imageUri = card.getImageUrl();
         cc.cardTypes = new ArrayList<>(card.getCurrentCardTypes());
         cc.isTapped = card.isTapped();
+
         if (combat != null) {
             cc.isAttacking = combat.isAttacking(card);
             cc.isBlocking = combat.isBlocking(card);
@@ -142,23 +126,51 @@ public class ArgentumStateLogger {
             cc.isAttacking = false;
             cc.isBlocking = false;
         }
+
         cc.power = card.hasPower() ? card.getNetPower() : null;
         cc.toughness = card.hasToughness() ? card.getNetToughness() : null;
         cc.damage = card.getDamage();
-         if (card.isAttached()) {
-        cc.attachedTo = String.valueOf(card.getAttachedTo().getId());
-    }
+        if (card.isAttached()) {
+            cc.attachedTo = String.valueOf(card.getAttachedTo().getId());
+        }
+        
+        // v-v-v-v- TARGETING LOGIC v-v-v-v-
         cc.targets = new ArrayList<>();
+        if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
+            // Find the spell ability instance on the stack that corresponds to this card
+            for (SpellAbilityStackInstance si : stack) {
+                if (si.getSourceCard().equals(card)) {
+                    SpellAbility sa = si.getSpellAbility();
+                    if (sa.usesTargeting()) {
+                        for (GameObject target : sa.getTargets()) {
+                            TargetInfo ti = new TargetInfo();
+                            ti.entityId = String.valueOf(target.getId());
+                            if (target instanceof Card) {
+                                ti.type = "Card";
+                            } else if (target instanceof Player) {
+                                ti.type = "Player";
+                            } else {
+                                ti.type = "Other";
+                            }
+                            cc.targets.add(ti);
+                        }
+                    }
+                    break; // Found the matching spell on the stack, no need to continue loop
+                }
+            }
+        }
+        // ^-^-^-^- END TARGETING LOGIC ^-^-^-^-
+
         return cc;
     }
 
     private static ClientZone createClientZone(Zone zone) {
+        // ... this method is unchanged ...
         ClientZone cz = new ClientZone();
         cz.type = zone.getZoneType().name();
         String ownerId = zone.getOwner() != null ? String.valueOf(zone.getOwner().getId()) : "game";
         cz.ownerId = ownerId;
         cz.zoneId = cz.type + "_" + ownerId;
-
         cz.cardIds = new ArrayList<>();
         for (Card card : zone.getCards()) {
             cz.cardIds.add(String.valueOf(card.getId()));
@@ -167,10 +179,29 @@ public class ArgentumStateLogger {
     }
 
     private static ClientPlayer createClientPlayer(Player player) {
+        // ... this method is unchanged ...
         ClientPlayer cp = new ClientPlayer();
         cp.playerId = String.valueOf(player.getId());
         cp.name = player.getName();
         cp.life = player.getLife();
         return cp;
+    }
+    
+    private static CombatState createCombatState(Combat combat) {
+        // ... this method is unchanged ...
+        if (combat == null) {
+            return null;
+        }
+        CombatState cs = new CombatState();
+        for (Card attacker : combat.getAttackers()) {
+            cs.attackers.add(String.valueOf(attacker.getId()));
+            CombatGroup group = new CombatGroup();
+            group.attackerId = String.valueOf(attacker.getId());
+            for (Card blocker : combat.getBlockers(attacker)) {
+                group.blockers.add(String.valueOf(blocker.getId()));
+            }
+            cs.groups.add(group);
+        }
+        return cs;
     }
 }
