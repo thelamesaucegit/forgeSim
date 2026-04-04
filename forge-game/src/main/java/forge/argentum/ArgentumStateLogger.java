@@ -144,7 +144,7 @@ public class ArgentumStateLogger {
         cc.power = card.isCreature() ? card.getNetPower() : null;
         cc.toughness = card.isCreature() ? card.getNetToughness() : null;
         cc.damage = card.getDamage();
-        if (card.isAttached()) {
+        if (card.isAttachedToEntity()) {
             cc.attachedTo = String.valueOf(card.getAttachedTo().getId());
         }
 
@@ -158,12 +158,14 @@ public class ArgentumStateLogger {
                     if (sa.usesTargeting()) {
                         for (GameObject target : sa.getTargets()) {
                             TargetInfo ti = new TargetInfo();
-                            ti.entityId = String.valueOf(target.getId());
                             if (target instanceof Card) {
+                                ti.entityId = String.valueOf(((Card) target).getId());
                                 ti.type = "Card";
                             } else if (target instanceof Player) {
+                                ti.entityId = String.valueOf(((Player) target).getId());
                                 ti.type = "Player";
                             } else {
+                                ti.entityId = target.toString();
                                 ti.type = "Other";
                             }
                             cc.targets.add(ti);
@@ -181,7 +183,7 @@ public class ArgentumStateLogger {
     private static ClientZone createClientZone(forge.game.zone.Zone zone) {
         ClientZone cz = new ClientZone();
         cz.type = zone.getZoneType().name();
-        String ownerId = zone.getOwner() != null ? String.valueOf(zone.getOwner().getId()) : "game";
+        String ownerId = zone.getPlayer() != null ? String.valueOf(zone.getPlayer().getId()) : "game";
         cz.ownerId = ownerId;
         cz.zoneId = cz.type + "_" + ownerId;
         cz.cardIds = new ArrayList<>();
