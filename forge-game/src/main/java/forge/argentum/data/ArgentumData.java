@@ -1,6 +1,7 @@
 // src/main/java/forge/argentum/data/ArgentumData.java
 package forge.argentum.data;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
@@ -12,7 +13,6 @@ public class ArgentumData {
         public String type; // Will be "Card", "Player", etc.
     }
 
-
     public static class CombatState {
         public List<CombatGroup> groups = new ArrayList<>();
         public List<String> attackers = new ArrayList<>();
@@ -22,7 +22,7 @@ public class ArgentumData {
         public String attackerId;
         public List<String> blockers = new ArrayList<>();
     }
-}
+
     public static class SpectatorStateUpdate {
         public String gameSessionId;
         public ClientGameState gameState;
@@ -34,7 +34,7 @@ public class ArgentumData {
         public String activePlayerId;
         public String priorityPlayerId;
         public boolean isReplay = true;
-        public CombatState combat = null;  
+        public CombatState combat = null;
     }
 
     public static class ClientGameState {
@@ -48,7 +48,7 @@ public class ArgentumData {
         public int turnNumber;
         public boolean isGameOver;
         public String winnerId;
-        public CombatState combat = null;  
+        public CombatState combat = null;
         public List<String> gameLog;
     }
 
@@ -58,8 +58,8 @@ public class ArgentumData {
         public String imageUri;
         public List<String> cardTypes;
         public boolean isTapped;
-        public boolean isAttacking = false; // We will populate this during combat phase
-        public boolean isBlocking = false; // We will populate this during combat phase
+        public boolean isAttacking = false;
+        public boolean isBlocking = false;
         public Integer power;
         public Integer toughness;
         public int damage;
