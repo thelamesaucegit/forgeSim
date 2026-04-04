@@ -5,6 +5,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.google.common.collect.Sets;
+import forge.argentum.ArgentumStateLogger;
 
 import forge.game.ability.AbilityKey;
 import forge.game.ability.AbilityUtils;
@@ -98,6 +99,8 @@ public class DrawEffect extends SpellAbilityEffect {
             if (sa.hasParam("RememberDrawn")) {
                 source.addRemembered(drawn);
             }
+             ArgentumStateLogger.logState(sa.getActivatingPlayer().getGame(), "EFFECT_DRAW");
+
         }
     }
 }

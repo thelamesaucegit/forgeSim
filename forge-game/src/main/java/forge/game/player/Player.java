@@ -43,7 +43,7 @@ import forge.game.replacement.ReplacementHandler;
 import forge.game.replacement.ReplacementResult;
 import forge.game.replacement.ReplacementType;
 import forge.game.spellability.AbilitySub;
-
+import forge.argentum.ArgentumStateLogger;
 import forge.game.spellability.AlternativeCost;
 import forge.game.spellability.SpellAbility;
 import forge.game.staticability.*;
@@ -894,6 +894,8 @@ public class Player extends GameEntity implements Comparable<Player> {
         if (table != null) {
             table.put(source, this, counterType, addAmount);
         }
+            ArgentumStateLogger.logState(getGame(), "ACTION_ADD_COUNTER");
+
     }
 
     @Override
@@ -1262,6 +1264,11 @@ public class Player extends GameEntity implements Comparable<Player> {
         else { // Lose by milling is always on. Give AI many cards it cannot play if you want it not to undertake actions
             triedToDrawFromEmptyLibrary = true;
         }
+        if (!drawn.isEmpty()) {
+        // The phase handler will tell us if we are in the draw step or not.
+        String stepName = game.getPhaseHandler().is(PhaseType.DRAW) ? "DRAW_STEP" : "EFFECT_DRAW";
+        ArgentumStateLogger.logState(game, stepName);
+    }
         return drawn;
     }
 
@@ -1663,7 +1670,7 @@ public class Player extends GameEntity implements Comparable<Player> {
 
         // play a sound
         game.fireEvent(new GameEventLandPlayed(PlayerView.get(this), CardView.get(c)));
-
+        ArgentumStateLogger.logState(game, "ACTION_PLAY_LAND");
         return c;
     }
 

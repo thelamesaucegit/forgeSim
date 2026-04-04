@@ -6,7 +6,7 @@ import java.util.List;
 import java.util.Map;
 
 import com.google.common.collect.Lists;
-
+import forge.argentum.ArgentumStateLogger;
 import com.google.common.collect.Maps;
 import forge.GameCommand;
 import forge.game.Game;
@@ -243,6 +243,8 @@ public class ControlGainEffect extends SpellAbilityEffect {
             runParams.put(AbilityKey.Map, map);
             game.getTriggerHandler().runTrigger(TriggerType.UntapAll, runParams, false);
         }
+            ArgentumStateLogger.logState(game, "ACTION_CHANGE_CONTROL");
+
     }
 
     /**

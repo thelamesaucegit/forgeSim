@@ -21,6 +21,7 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Map;
 import java.util.Map.Entry;
+import forge.argentum.ArgentumStateLogger;
 
 import com.google.common.collect.Maps;
 
@@ -76,6 +77,8 @@ public class Untap extends Phase {
         game.getAction().checkStaticAbilities();
 
         doUntap();
+            ArgentumStateLogger.logState(game, "UNTAP_STEP");
+
     }
 
     /**

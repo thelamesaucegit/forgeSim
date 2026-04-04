@@ -5,7 +5,7 @@ import forge.game.ability.SpellAbilityEffect;
 import forge.game.card.Card;
 import forge.game.spellability.SpellAbility;
 import forge.util.Lang;
-
+import forge.argentum.ArgentumStateLogger;
 public class UnattachEffect extends SpellAbilityEffect {
     /* (non-Javadoc)
      * @see forge.card.abilityfactory.SpellEffect#getStackDescription(java.util.Map, forge.card.spellability.SpellAbility)
@@ -40,5 +40,7 @@ public class UnattachEffect extends SpellAbilityEffect {
                 gameCard.unattachFromEntity(gameCard.getEntityAttachedTo());
             }
         }
+            ArgentumStateLogger.logState(game, "ACTION_UNATTACH");
+
     }
 }
