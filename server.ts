@@ -76,9 +76,40 @@ async function spawnMatchProcess({ new: payload }: any) {
             const { gameStates, winner } = await postProcessLog(rawLog, deck1_list, deck2_list, cardDictionary);
             if (!winner) { console.warn(`[PROCESS] No winner found for ${matchId}.`); return; }
             const finalReplay = processReplay(gameStates);
-            const { error: dbError } = await supabase.from('sim_matches').update({ winner, game_states: finalReplay }).eq('id', matchId);
-            if (dbError) console.error(`[DB] Update Error for ${matchId}:`, dbError);
-            else console.log(`[DB] Success for ${matchId}.`);
+            
+             const { error: dbError } = await supabase
+        .from('sim_matches')
+        .update({ winner, game_states: finalReplay })
+        .eq('id', matchId);
+
+    if (dbError) {
+        console.error(`[DB] Update Error for ${matchId}:`, dbError);
+        return;
+    }
+
+    console.log(`[DB] Success for ${matchId}.`);
+
+    // Resolve winner_team_id from the winner string
+    // The winner string is the player name, which contains the team_id UUID
+    // Format: "Ai(1)-<team_id> (AI: <profile>)" or similar
+    const winnerTeamId = [team1_id, team2_id].find(
+        id => id && winner.includes(id)
+    ) ?? null;
+
+    // Update schedule table to completed
+    const { error: scheduleError } = await supabase
+        .from('schedule')
+        .update({
+            status: 'completed',
+            winner_team_id: winnerTeamId,
+        })
+        .eq('sim_match_id', matchId);
+
+    if (scheduleError) {
+        console.error(`[DB] Schedule update error for sim_match ${matchId}:`, scheduleError);
+    } else {
+        console.log(`[DB] Schedule row completed for sim_match ${matchId}, winner team: ${winnerTeamId ?? 'draw'}`);
+    }
         });
 
     } catch (e) { console.error(`[FATAL] for ${matchId}:`, e); }
