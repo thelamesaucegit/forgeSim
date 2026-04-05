@@ -29,8 +29,17 @@ public class ArgentumStateLogger {
 
     private static final Gson gson = new GsonBuilder().setLenient().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
-    private static final String LOG_ENDPOINT_URL = "http://dynastycube-dev:8080/api/log-state";
-
+  private static String getLogEndpointUrl() {
+        // Read the endpoint URL from an environment variable named "LOG_ENDPOINT_URL".
+        String endpoint = System.getenv("LOG_ENDPOINT_URL");
+        
+        // If the environment variable is not set, default to localhost for local development.
+        if (endpoint == null || endpoint.isEmpty()) {
+            return "http://localhost:3000/api/log-state";
+        }
+        
+        return endpoint;
+    }
     private static final List<ZoneType> PLAYER_ZONE_TYPES = Arrays.asList(
             ZoneType.Hand, ZoneType.Library, ZoneType.Graveyard,
             ZoneType.Battlefield, ZoneType.Exile, ZoneType.Command);
