@@ -29,8 +29,17 @@ public class ArgentumStateLogger {
 
     private static final Gson gson = new GsonBuilder().setLenient().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
-    private static final String LOG_ENDPOINT_URL = "http://dynastycube-dev:8080/api/log-state";
-
+  private static String getLogEndpointUrl() {
+        // Read the endpoint URL from an environment variable named "LOG_ENDPOINT_URL".
+        String endpoint = System.getenv("LOG_ENDPOINT_URL");
+        
+        // If the environment variable is not set, default to localhost for local development.
+        if (endpoint == null || endpoint.isEmpty()) {
+            return "http://localhost:3000/api/log-state";
+        }
+        
+        return endpoint;
+    }
     private static final List<ZoneType> PLAYER_ZONE_TYPES = Arrays.asList(
             ZoneType.Hand, ZoneType.Library, ZoneType.Graveyard,
             ZoneType.Battlefield, ZoneType.Exile, ZoneType.Command);
@@ -46,19 +55,22 @@ public class ArgentumStateLogger {
         }
     }
 
-    private static void sendStateToLogServer(String matchId, String jsonState) {
+ private static void sendStateToLogServer(String matchId, String jsonState) {
         String requestBody = "{\"matchId\": \"" + matchId + "\", \"state\": " + jsonState + "}";
+
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(LOG_ENDPOINT_URL))
+                .uri(URI.create(getLogEndpointUrl())) // Use the dynamic URL
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
+
         httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .exceptionally(e -> {
-                    System.err.println("ArgentumStateLogger: Failed to send log to server: " + e.getMessage());
+                    System.err.println("ArgentumStateLogger: Failed to send log to server at " + getLogEndpointUrl() + ": " + e.getMessage());
                     return null;
                 });
     }
+    
 
     private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
