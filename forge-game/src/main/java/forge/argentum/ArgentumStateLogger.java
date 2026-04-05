@@ -29,17 +29,22 @@ public class ArgentumStateLogger {
 
     private static final Gson gson = new GsonBuilder().setLenient().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
-  private static String getLogEndpointUrl() {
-        // Read the endpoint URL from an environment variable named "LOG_ENDPOINT_URL".
-        String endpoint = System.getenv("LOG_ENDPOINT_URL");
-        
-        // If the environment variable is not set, default to localhost for local development.
-        if (endpoint == null || endpoint.isEmpty()) {
-            return "http://localhost:3000/api/log-state";
-        }
-        
-        return endpoint;
+  // In forge/argentum/ArgentumStateLogger.java
+
+private static String getLogEndpointUrl() {
+    // Read the service name from an environment variable.
+    String serviceHost = System.getenv("LOG_ENDPOINT_HOST");
+    
+    // If the variable isn't set, we are in local development.
+    if (serviceHost == null || serviceHost.isEmpty()) {
+        return "http://localhost:3000/api/log-state";
     }
+    
+    // If the variable IS set (on DigitalOcean), construct a proper HTTPS URL.
+    // The platform automatically routes traffic on port 443 to your service's exposed port.
+    return "https://" + serviceHost + "/api/log-state";
+}
+
     private static final List<ZoneType> PLAYER_ZONE_TYPES = Arrays.asList(
             ZoneType.Hand, ZoneType.Library, ZoneType.Graveyard,
             ZoneType.Battlefield, ZoneType.Exile, ZoneType.Command);

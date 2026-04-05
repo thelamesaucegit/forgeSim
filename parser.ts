@@ -24,6 +24,7 @@ export async function postProcessLog(
                 // Apply the event to the last known state to produce the next state.
                 const newState = applyJsonEvent(gameStates[gameStates.length - 1], event, cardDictionary);
                 gameStates.push(newState);
+                if (Object.values(newState.players).some(p => p.life <= 0)) break;
             } catch (e) {
                 // Ignore malformed JSON lines.
             }
