@@ -29,7 +29,7 @@ public class ArgentumStateLogger {
 
     private static final Gson gson = new GsonBuilder().setLenient().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
-    private static final String LOG_ENDPOINT_URL = "http://dynastycube-dev:3000/api/log-state";
+    private static final String LOG_ENDPOINT_URL = "http://dynastycube-dev:8080/api/log-state";
 
     private static final List<ZoneType> PLAYER_ZONE_TYPES = Arrays.asList(
             ZoneType.Hand, ZoneType.Library, ZoneType.Graveyard,
