@@ -55,19 +55,22 @@ public class ArgentumStateLogger {
         }
     }
 
-    private static void sendStateToLogServer(String matchId, String jsonState) {
+ private static void sendStateToLogServer(String matchId, String jsonState) {
         String requestBody = "{\"matchId\": \"" + matchId + "\", \"state\": " + jsonState + "}";
+
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(LOG_ENDPOINT_URL))
+                .uri(URI.create(getLogEndpointUrl())) // Use the dynamic URL
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
+
         httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .exceptionally(e -> {
-                    System.err.println("ArgentumStateLogger: Failed to send log to server: " + e.getMessage());
+                    System.err.println("ArgentumStateLogger: Failed to send log to server at " + getLogEndpointUrl() + ": " + e.getMessage());
                     return null;
                 });
     }
+    
 
     private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
