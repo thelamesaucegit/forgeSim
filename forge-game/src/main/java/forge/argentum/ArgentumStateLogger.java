@@ -35,7 +35,7 @@ public class ArgentumStateLogger {
         
         // If the environment variable is not set, default to localhost for local development.
         if (endpoint == null || endpoint.isEmpty()) {
-            return "http://localhost:8080/api/log-state";
+            return "http://localhost:3000/api/log-state";
         }
         
         return endpoint;
