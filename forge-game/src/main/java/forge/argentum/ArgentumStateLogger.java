@@ -37,9 +37,9 @@ public class ArgentumStateLogger {
             return "http://localhost:3000/api/log-state";
         }
         if (servicePort == null || servicePort.isEmpty()) {
-            servicePort = "3000";
+            servicePort = "443";
         }
-        return "http://" + serviceHost + ":" + servicePort + "/api/log-state";
+        return "https://" + serviceHost + ":" + servicePort + "/api/log-state";
     }
 
     public static void logState(Game game, String currentStep) {
