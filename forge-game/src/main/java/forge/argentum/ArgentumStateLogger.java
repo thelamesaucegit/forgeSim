@@ -37,7 +37,7 @@ public class ArgentumStateLogger {
             return "http://localhost:3000/api/log-state";
         }
         if (servicePort == null || servicePort.isEmpty()) {
-            servicePort = "8080";
+            servicePort = "3000";
         }
         return "http://" + serviceHost + ":" + servicePort + "/api/log-state";
     }
