@@ -50,6 +50,7 @@ private static String getLogEndpointUrl() {
             ZoneType.Battlefield, ZoneType.Exile, ZoneType.Command);
 
     public static void logState(Game game, String currentStep) {
+
         try {
             SpectatorStateUpdate snapshot = createSnapshotFromGame(game, currentStep);
             String jsonSnapshot = gson.toJson(snapshot);
@@ -77,65 +78,72 @@ private static String getLogEndpointUrl() {
     }
     
 
-    private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
-        SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
-        ClientGameState gameState = new ClientGameState();
-        List<Player> players = game.getPlayers();
-        if (players.size() < 2) {
-            throw new IllegalStateException("Game must have at least two players to log.");
-        }
-        Player player1 = players.get(0);
-        Player player2 = players.get(1);
-
-        Combat currentCombat = game.getPhaseHandler().getCombat();
-        MagicStack stack = game.getStack();
-
-        // 1. Populate top-level snapshot info
-        snapshot.gameSessionId = String.valueOf(game.getId());
-        snapshot.player1Id = String.valueOf(player1.getId());
-        snapshot.player2Id = String.valueOf(player2.getId());
-        snapshot.player1Name = player1.getName();
-        snapshot.player2Name = player2.getName();
-        snapshot.currentPhase = game.getPhaseHandler().getPhase().name();
-        snapshot.activePlayerId = String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
-        snapshot.priorityPlayerId = game.getPhaseHandler().getPriorityPlayer() != null ? String.valueOf(game.getPhaseHandler().getPriorityPlayer().getId()) : null;
-        snapshot.combat = createCombatState(currentCombat);
-
-        // 2. Populate ClientGameState
-        gameState.cards = new HashMap<>();
-        for (Card card : game.getCardsInGame()) {
-            gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
-        }
-
-        gameState.zones = new ArrayList<>();
-        for (Player p : players) {
-            for (ZoneType zt : PLAYER_ZONE_TYPES) {
-                gameState.zones.add(createClientZone(p.getZone(zt)));
-            }
-        }
-        gameState.zones.add(createClientZone(game.getStackZone()));
-
-        gameState.players = new ArrayList<>();
-        for (Player p : players) {
-            gameState.players.add(createClientPlayer(p));
-        }
-
-        gameState.currentPhase = snapshot.currentPhase;
-        gameState.currentStep = currentStep;
-        gameState.activePlayerId = snapshot.activePlayerId;
-        gameState.priorityPlayerId = snapshot.priorityPlayerId;
-        gameState.turnNumber = game.getPhaseHandler().getTurn();
-        gameState.isGameOver = game.isGameOver();
-        GameOutcome outcome = game.getOutcome();
-        gameState.winnerId = (outcome != null && outcome.getWinningPlayer() != null)
-                ? String.valueOf(outcome.getWinningPlayer().getId())
-                : null;
-        gameState.gameLog = Collections.singletonList("> Turn " + gameState.turnNumber + ": " + currentStep.replace("_", " "));
-        gameState.combat = createCombatState(currentCombat);
-
-        snapshot.gameState = gameState;
-        return snapshot;
+private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
+    SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
+    ClientGameState gameState = new ClientGameState();
+    
+    List<Player> players = game.getPlayers();
+    if (players.size() < 2) {
+        throw new IllegalStateException("Game must have at least two players to log.");
     }
+    Player player1 = players.get(0);
+    Player player2 = players.get(1);
+
+    Combat currentCombat = game.getPhaseHandler().getCombat();
+    MagicStack stack = game.getStack();
+
+    // v-v-v-v- THIS IS THE NEW, ROBUST LOGIC v-v-v-v-
+    boolean isPreGame = (game.getPhaseHandler() == null || game.getPhaseHandler().getPhase() == null);
+    
+    String currentPhaseName = isPreGame ? "MULLIGAN" : game.getPhaseHandler().getPhase().name();
+    String currentStepName = isPreGame ? "OPENING_HAND" : currentStep;
+    int currentTurnNumber = isPreGame ? 0 : game.getPhaseHandler().getTurn();
+    String activePlayerId = isPreGame ? null : String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
+    String priorityPlayerId = (isPreGame || game.getPhaseHandler().getPriorityPlayer() == null) ? null : String.valueOf(game.getPhaseHandler().getPriorityPlayer().getId());
+    // ^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-
+
+    // 1. Populate top-level snapshot info
+    snapshot.gameSessionId = game.getMatch().getMatchId();
+    snapshot.player1Id = String.valueOf(player1.getId());
+    snapshot.player2Id = String.valueOf(player2.getId());
+    snapshot.player1Name = player1.getName();
+    snapshot.player2Name = player2.getName();
+    snapshot.currentPhase = currentPhaseName;
+    snapshot.activePlayerId = activePlayerId;
+    snapshot.priorityPlayerId = priorityPlayerId;
+    snapshot.combat = createCombatState(currentCombat);
+
+    // 2. Populate ClientGameState
+    gameState.cards = new HashMap<>();
+    for (Card card : game.getCardsInGame()) {
+        gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
+    }
+
+    // ... (zones, players) ...
+    gameState.zones = new ArrayList<>();
+    for (Zone zone : game.getZones()) {
+        gameState.zones.add(createClientZone(zone));
+    }
+    gameState.players = new ArrayList<>();
+    for(Player p : players) {
+        gameState.players.add(createClientPlayer(p));
+    }
+
+    // 2d. Scalar Game State Values
+    gameState.currentPhase = currentPhaseName;
+    gameState.currentStep = currentStepName;
+    gameState.activePlayerId = activePlayerId;
+    gameState.priorityPlayerId = priorityPlayerId;
+    gameState.turnNumber = currentTurnNumber;
+    gameState.isGameOver = game.isGameOver();
+    gameState.winnerId = game.getWinner() != null ? String.valueOf(game.getWinner().getWinningPlayer().getId()) : null;
+    gameState.gameLog = Collections.singletonList(isPreGame ? "> Drawing opening hands..." : "> Turn " + gameState.turnNumber + ": " + currentStep.replace("_", " "));
+    gameState.combat = createCombatState(currentCombat);
+
+    snapshot.gameState = gameState;
+    return snapshot;
+}
+
 
     private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
         ClientCard cc = new ClientCard();
