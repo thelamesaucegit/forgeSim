@@ -54,18 +54,33 @@ public class ArgentumStateLogger {
     }
 
     private static void sendStateToLogServer(String matchId, String jsonState) {
+    try {
         String requestBody = "{\"matchId\": \"" + matchId + "\", \"state\": " + jsonState + "}";
+        String endpointUrl = getLogEndpointUrl();
+
+        // LOG 1: Log that we are about to send the request.
+        System.out.println("ArgentumLogger: Attempting to POST to " + endpointUrl);
+
         HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(getLogEndpointUrl()))
+                .uri(URI.create(endpointUrl))
                 .header("Content-Type", "application/json")
                 .POST(HttpRequest.BodyPublishers.ofString(requestBody))
                 .build();
-        httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
-                .exceptionally(e -> {
-                    System.err.println("ArgentumStateLogger: Failed to send log to server at " + getLogEndpointUrl() + ": " + e.getMessage());
-                    return null;
-                });
+
+        // Change from sendAsync to send (synchronous) for easier debugging.
+        // This will block until a response is received or it times out.
+        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+
+        // LOG 2: Log the response status code and body from the web server.
+        System.out.println("ArgentumLogger: Received response. Status: " + response.statusCode());
+        System.out.println("ArgentumLogger: Response Body: " + response.body());
+
+    } catch (Exception e) {
+        // LOG 3: This will catch any network-level errors like ConnectException or timeouts.
+        System.err.println("ArgentumStateLogger: HTTP request failed catastrophically.");
+        e.printStackTrace();
     }
+}
 
     private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
