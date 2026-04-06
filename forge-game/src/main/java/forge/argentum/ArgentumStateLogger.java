@@ -55,8 +55,6 @@ public class ArgentumStateLogger {
         }
     }
 
-import java.net.http.HttpRequest.BodyPublishers;
-import java.time.Duration;
 
     private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
