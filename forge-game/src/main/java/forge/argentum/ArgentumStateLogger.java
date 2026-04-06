@@ -32,25 +32,22 @@ public class ArgentumStateLogger {
     private static final HttpClient httpClient = HttpClient.newHttpClient();
 
     private static String getLogEndpointUrl() {
+        // Read the internal hostname and port from environment variables.
         String serviceHost = System.getenv("LOG_ENDPOINT_HOST");
+        String servicePort = System.getenv("LOG_ENDPOINT_PORT");
+
+        // If they aren't set, default to your local Next.js dev server.
         if (serviceHost == null || serviceHost.isEmpty()) {
             return "http://localhost:3000/api/log-state";
         }
-        return "https://" + serviceHost + "/api/log-state";
-    }
+        
+        // If port isn't specified, default to 8080 (a common default for these platforms).
+        if (servicePort == null || servicePort.isEmpty()) {
+            servicePort = "8080";
+        }
 
-    public static void logState(Game game, String currentStep) {
-        if (game.getPhaseHandler() == null) {
-             return; 
-        }
-        try {
-            SpectatorStateUpdate snapshot = createSnapshotFromGame(game, currentStep);
-            String jsonSnapshot = gson.toJson(snapshot);
-            sendStateToLogServer(String.valueOf(game.getId()), jsonSnapshot);
-        } catch (Exception e) {
-            System.err.println("ArgentumStateLogger Error: Failed to log state for step: " + currentStep);
-            e.printStackTrace();
-        }
+        // Construct the plain HTTP URL for internal service-to-service communication.
+        return "http://" + serviceHost + ":" + servicePort + "/api/log-state";
     }
 
     // THE RESILIENT ASYNC METHOD WITH TIMEOUT
