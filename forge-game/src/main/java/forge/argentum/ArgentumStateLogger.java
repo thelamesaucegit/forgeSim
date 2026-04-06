@@ -49,7 +49,8 @@ public class ArgentumStateLogger {
         try {
             SpectatorStateUpdate snapshot = createSnapshotFromGame(game, currentStep);
             String jsonSnapshot = gson.toJson(snapshot);
-            sendStateToLogServer(String.valueOf(game.getId()), jsonSnapshot);
+            
+        sendStateToLogServer(game.getMatch().getMatchId(), jsonSnapshot);
         } catch (Exception e) {
             System.err.println("ArgentumStateLogger Error: Failed to log state for step: " + currentStep);
             e.printStackTrace();
@@ -100,7 +101,7 @@ public class ArgentumStateLogger {
         int currentTurnNumber = isPreGame ? 0 : game.getPhaseHandler().getTurn();
         String activePlayerId = (isPreGame || game.getPhaseHandler().getPlayerTurn() == null) ? null : String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
         String priorityPlayerId = (isPreGame || game.getPhaseHandler().getPriorityPlayer() == null) ? null : String.valueOf(game.getPhaseHandler().getPriorityPlayer().getId());
-        snapshot.gameSessionId = String.valueOf(game.getId());
+        snapshot.gameSessionId = game.getMatch().getMatchId(); 
         snapshot.player1Id = String.valueOf(player1.getId());
         snapshot.player2Id = String.valueOf(player2.getId());
         snapshot.player1Name = player1.getName();
