@@ -47,9 +47,17 @@ public class SimulateMatch {
         }
 
         final Map<String, List<String>> params = new HashMap<>();
+         String matchIdFromCli = null; 
         List<String> options = null;
         for (int i = 1; i < args.length; i++) {
             final String a = args[i];
+            if ("-id".equals(a)) {
+                if (i + 1 < args.length) {
+                    matchIdFromCli = args[i + 1];
+                    i++; // Skip the UUID value in the next iteration
+                    continue; // Move to the next argument
+                }
+            }
             if (a.charAt(0) == '-') {
                 if (a.length() < 2) {
                     System.err.println("Error at argument " + a);
@@ -136,7 +144,7 @@ public class SimulateMatch {
         sb.append(" - ").append(Lang.nounWithNumeral(nGames, "game")).append(" of ").append(type);
         System.out.println(sb.toString());
 
-        Match mc = new Match(rules, pp, "Test");
+        Match mc = new Match(rules, pp, "Test", matchIdFromCli);
 
         if (matchSize != 0) {
             int iGame = 0;
