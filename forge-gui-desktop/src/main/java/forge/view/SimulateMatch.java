@@ -182,6 +182,8 @@ public class SimulateMatch {
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
+                    ArgentumStateLogger.flushQueue();
+
             if (sw.isStarted()) {
                 sw.stop();
             }
