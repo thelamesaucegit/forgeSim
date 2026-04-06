@@ -1,11 +1,11 @@
 // src/main/java/forge/argentum/ArgentumStateLogger.java
 package forge.argentum;
 
+// All necessary imports, correctly placed
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
 import forge.game.Game;
-//import forge.game.GameOutcome;
 import forge.game.GameObject;
 import forge.game.card.Card;
 import forge.game.combat.Combat;
@@ -13,20 +13,18 @@ import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
 import forge.game.zone.MagicStack;
-import forge.game.zone.Zone; // <-- FIX: Re-added this essential import
+import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
+import java.net.http.HttpRequest.BodyPublishers;
+import java.time.Duration;
 import java.util.ArrayList;
-//import java.util.Arrays; // <-- FIX: Re-added for the PLAYER_ZONE_TYPES list
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
-import java.net.http.HttpRequest.BodyPublishers;
-import java.time.Duration;
 
 public class ArgentumStateLogger {
 
@@ -55,6 +53,38 @@ public class ArgentumStateLogger {
         }
     }
 
+    // THE RESILIENT ASYNC METHOD WITH TIMEOUT
+    private static void sendStateToLogServer(String matchId, String jsonState) {
+        try {
+            String requestBody = "{\"matchId\": \"" + matchId + "\", \"state\": " + jsonState + "}";
+            String endpointUrl = getLogEndpointUrl();
+    
+            System.out.println("ArgentumLogger: Attempting to POST to " + endpointUrl);
+    
+            HttpRequest request = HttpRequest.newBuilder()
+                    .uri(URI.create(endpointUrl))
+                    .header("Content-Type", "application/json")
+                    .timeout(Duration.ofSeconds(10)) // Set a 10-second timeout
+                    .POST(BodyPublishers.ofString(requestBody))
+                    .build();
+    
+            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenAccept(response -> {
+                    System.out.println("ArgentumLogger: Received response. Status: " + response.statusCode());
+                    if (response.statusCode() != 200) {
+                         System.err.println("ArgentumLogger: Received non-200 response: " + response.body());
+                    }
+                })
+                .exceptionally(e -> {
+                    System.err.println("ArgentumStateLogger: HTTP request failed: " + e.getMessage());
+                    return null;
+                });
+    
+        } catch (Exception e) {
+            System.err.println("ArgentumStateLogger: Catastrophic failure in sendStateToLogServer.");
+            e.printStackTrace();
+        }
+    }
 
     private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
@@ -72,10 +102,10 @@ public class ArgentumStateLogger {
         String currentPhaseName = isPreGame ? "MULLIGAN" : game.getPhaseHandler().getPhase().name();
         String currentStepName = isPreGame ? "OPENING_HAND" : currentStep;
         int currentTurnNumber = isPreGame ? 0 : game.getPhaseHandler().getTurn();
-        String activePlayerId = isPreGame || game.getPhaseHandler().getPlayerTurn() == null ? null : String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
+        String activePlayerId = (isPreGame || game.getPhaseHandler().getPlayerTurn() == null) ? null : String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
         String priorityPlayerId = (isPreGame || game.getPhaseHandler().getPriorityPlayer() == null) ? null : String.valueOf(game.getPhaseHandler().getPriorityPlayer().getId());
 
-        snapshot.gameSessionId = String.valueOf(game.getId()); // FIX: Use game.getId()
+        snapshot.gameSessionId = String.valueOf(game.getId());
         snapshot.player1Id = String.valueOf(player1.getId());
         snapshot.player2Id = String.valueOf(player2.getId());
         snapshot.player1Name = player1.getName();
@@ -89,8 +119,7 @@ public class ArgentumStateLogger {
         for (Card card : game.getCardsInGame()) {
             gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
         }
-        
-        // FIX: Iterate through players to get all zones
+
         gameState.zones = new ArrayList<>();
         for (Player p : players) {
             for (ZoneType zt : Player.ALL_ZONES) {
@@ -100,9 +129,7 @@ public class ArgentumStateLogger {
                 }
             }
         }
-        // Also add the shared Stack zone
         gameState.zones.add(createClientZone(game.getStackZone()));
-
 
         gameState.players = new ArrayList<>();
         for(Player p : players) {
@@ -116,8 +143,7 @@ public class ArgentumStateLogger {
         gameState.turnNumber = currentTurnNumber;
         gameState.isGameOver = game.isGameOver();
 
-        // FIX: Find winner by iterating players
-       String winnerId = null;
+        String winnerId = null;
         if (gameState.isGameOver) {
             for (Player p : players) {
                 if (p.hasWon()) { 
@@ -135,7 +161,6 @@ public class ArgentumStateLogger {
         return snapshot;
     }
 
-
     private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
         ClientCard cc = new ClientCard();
         cc.entityId = String.valueOf(card.getId());
@@ -148,7 +173,6 @@ public class ArgentumStateLogger {
             }
         }
         cc.isTapped = card.isTapped();
-
         if (combat != null) {
             cc.isAttacking = combat.isAttacking(card);
             cc.isBlocking = combat.isBlocking(card);
@@ -156,18 +180,14 @@ public class ArgentumStateLogger {
             cc.isAttacking = false;
             cc.isBlocking = false;
         }
-
         cc.power = card.isCreature() ? card.getNetPower() : null;
         cc.toughness = card.isCreature() ? card.getNetToughness() : null;
         cc.damage = card.getDamage();
         if (card.isAttachedToEntity()) {
             cc.attachedTo = String.valueOf(card.getAttachedTo().getId());
         }
-
-        // v-v-v-v- TARGETING LOGIC v-v-v-v-
         cc.targets = new ArrayList<>();
         if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
-            // Find the spell ability instance on the stack that corresponds to this card
             for (SpellAbilityStackInstance si : stack) {
                 if (si.getSourceCard().equals(card)) {
                     SpellAbility sa = si.getSpellAbility();
@@ -175,10 +195,10 @@ public class ArgentumStateLogger {
                         for (GameObject target : sa.getTargets()) {
                             TargetInfo ti = new TargetInfo();
                             if (target instanceof Card) {
-                                ti.entityId = String.valueOf(((Card) target).getId());
+                                ti.entityId = String.valueOf(target.getId());
                                 ti.type = "Card";
                             } else if (target instanceof Player) {
-                                ti.entityId = String.valueOf(((Player) target).getId());
+                                ti.entityId = String.valueOf(target.getId());
                                 ti.type = "Player";
                             } else {
                                 ti.entityId = target.toString();
@@ -187,16 +207,14 @@ public class ArgentumStateLogger {
                             cc.targets.add(ti);
                         }
                     }
-                    break; // Found the matching spell on the stack, no need to continue loop
+                    break;
                 }
             }
         }
-        // ^-^-^-^- END TARGETING LOGIC ^-^-^-^-
-
         return cc;
     }
 
-    private static ClientZone createClientZone(forge.game.zone.Zone zone) {
+    private static ClientZone createClientZone(Zone zone) {
         ClientZone cz = new ClientZone();
         cz.type = zone.getZoneType().name();
         String ownerId = zone.getPlayer() != null ? String.valueOf(zone.getPlayer().getId()) : "game";
