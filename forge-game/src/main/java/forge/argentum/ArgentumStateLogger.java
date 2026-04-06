@@ -50,6 +50,11 @@ private static String getLogEndpointUrl() {
             ZoneType.Battlefield, ZoneType.Exile, ZoneType.Command);
 
     public static void logState(Game game, String currentStep) {
+        // This guard clause checks if the game is fully initialized before logging.
+    // It prevents the NullPointerException during the initial hand draw.
+    if (game.getPhaseHandler() == null || game.getPhaseHandler().getPhase() == null) {
+        return; // Do nothing if the game hasn't started yet.
+    }
         try {
             SpectatorStateUpdate snapshot = createSnapshotFromGame(game, currentStep);
             String jsonSnapshot = gson.toJson(snapshot);
