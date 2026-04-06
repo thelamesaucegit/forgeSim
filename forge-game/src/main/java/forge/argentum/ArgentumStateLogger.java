@@ -13,7 +13,7 @@ import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
 import forge.game.zone.MagicStack;
 import forge.game.zone.ZoneType;
-
+import forge.game.GameOutcome;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -134,7 +134,13 @@ private static SpectatorStateUpdate createSnapshotFromGame(Game game, String cur
     gameState.priorityPlayerId = priorityPlayerId;
     gameState.turnNumber = currentTurnNumber;
     gameState.isGameOver = game.isGameOver();
-    gameState.winnerId = game.getWinner() != null ? String.valueOf(game.getWinner().getWinningPlayer().getId()) : null;
+// In createSnapshotFromGame method...
+
+// Explicitly declare a variable of type GameOutcome
+GameOutcome winnerOutcome = game.getWinner();
+
+// Now, use this new variable for the null check and to get the winner's ID
+gameState.winnerId = winnerOutcome != null ? String.valueOf(winnerOutcome.getWinningPlayer().getId()) : null;
     gameState.gameLog = Collections.singletonList(isPreGame ? "> Drawing opening hands..." : "> Turn " + gameState.turnNumber + ": " + currentStep.replace("_", " "));
     gameState.combat = createCombatState(currentCombat);
 
