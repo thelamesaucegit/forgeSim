@@ -60,7 +60,7 @@ async function spawnMatchProcess({ new: payload }: any) {
 
         const cardDictionary = await getCardDictionary(deck1_list + '\n' + deck2_list);
 
-        const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1_id, team2_id, '-a', profile1, profile2, '-n', '1','-m', matchId]);
+        const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1_id, team2_id, '-a', profile1, profile2, '-n', '1','-id', matchId]);
         
         let rawLog = '';
         child.stdout.on('data', (data: Buffer) => {
