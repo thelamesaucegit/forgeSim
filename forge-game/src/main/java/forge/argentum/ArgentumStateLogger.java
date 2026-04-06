@@ -5,7 +5,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
 import forge.game.Game;
-import forge.game.GameOutcome;
+//import forge.game.GameOutcome;
 import forge.game.GameObject;
 import forge.game.card.Card;
 import forge.game.combat.Combat;
@@ -21,7 +21,7 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.util.ArrayList;
-import java.util.Arrays; // <-- FIX: Re-added for the PLAYER_ZONE_TYPES list
+//import java.util.Arrays; // <-- FIX: Re-added for the PLAYER_ZONE_TYPES list
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
@@ -46,7 +46,6 @@ public class ArgentumStateLogger {
         try {
             SpectatorStateUpdate snapshot = createSnapshotFromGame(game, currentStep);
             String jsonSnapshot = gson.toJson(snapshot);
-            // FIX: Use game.getId() instead of game.getMatch().getMatchId()
             sendStateToLogServer(String.valueOf(game.getId()), jsonSnapshot);
         } catch (Exception e) {
             System.err.println("ArgentumStateLogger Error: Failed to log state for step: " + currentStep);
@@ -129,10 +128,10 @@ public class ArgentumStateLogger {
         gameState.isGameOver = game.isGameOver();
 
         // FIX: Find winner by iterating players
-        String winnerId = null;
+       String winnerId = null;
         if (gameState.isGameOver) {
             for (Player p : players) {
-                if (p.hasWon()) {
+                if (p.hasWon()) { 
                     winnerId = String.valueOf(p.getId());
                     break;
                 }
