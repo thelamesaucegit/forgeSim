@@ -24,11 +24,16 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.concurrent.ConcurrentLinkedQueue; // For our thread-safe queue
+
 
 public class ArgentumStateLogger {
 
     private static final Gson gson = new GsonBuilder().setLenient().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
+private static final int BATCH_SIZE = 20; // Send a batch after 20 events have queued up.
+    private static final ConcurrentLinkedQueue<SpectatorStateUpdate> eventQueue = new ConcurrentLinkedQueue<>();
+        private static String currentMatchId; // Store the ID for the flush operation.
 
     private static String getLogEndpointUrl() {
         String serviceHost = System.getenv("LOG_ENDPOINT_HOST");
@@ -42,49 +47,85 @@ public class ArgentumStateLogger {
         return "https://" + serviceHost + ":" + servicePort + "/api/log-state";
     }
 
-    public static void logState(Game game, String currentStep) {
+ public static void logState(Game game, String currentStep) {
         if (game.getPhaseHandler() == null) {
-            return;
+            return; 
         }
         try {
+            // Create the snapshot and add it to our in-memory queue.
             SpectatorStateUpdate snapshot = createSnapshotFromGame(game, currentStep);
-            String jsonSnapshot = gson.toJson(snapshot);
+            eventQueue.add(snapshot);
             
-        sendStateToLogServer(game.getMatch().getMatchId(), jsonSnapshot);
+            // Store the match ID in case we need it for a final flush.
+            currentMatchId = game.getMatch().getMatchId();
+
+            // If the queue has reached our desired batch size, send the batch.
+            if (eventQueue.size() >= BATCH_SIZE) {
+                flushQueue();
+            }
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger Error: Failed to log state for step: " + currentStep);
+            System.err.println("ArgentumStateLogger Error: Failed to queue state for step: " + currentStep);
             e.printStackTrace();
         }
     }
+    
+    // New method to be called when the game/match is over.
+    public static void flushQueue() {
+        if (eventQueue.isEmpty()) {
+            return;
+        }
 
-    private static void sendStateToLogServer(String matchId, String jsonState) {
+        // Drain the queue into a temporary list.
+        List<SpectatorStateUpdate> statesToSend = new ArrayList<>();
+        while (!eventQueue.isEmpty()) {
+            statesToSend.add(eventQueue.poll());
+        }
+        
+        if (statesToSend.isEmpty()) {
+            return;
+        }
+
+        System.out.println("ArgentumLogger: Flushing queue with " + statesToSend.size() + " states.");
+        String jsonBatch = gson.toJson(statesToSend);
+        sendBatchToLogServer(currentMatchId, jsonBatch);
+    }
+
+
+
+     // The HTTP sending logic is now for batches.
+    private static void sendBatchToLogServer(String matchId, String jsonBatch) {
         try {
-            String requestBody = "{\"matchId\": \"" + matchId + "\", \"state\": " + jsonState + "}";
+            // The API expects a simple array payload.
+            String requestBody = jsonBatch;
             String endpointUrl = getLogEndpointUrl();
-            System.out.println("ArgentumLogger: Attempting to POST to " + endpointUrl);
+    
+            System.out.println("ArgentumLogger: Sending batch of " + (jsonBatch.length() / 1024) + "KB to " + endpointUrl);
+    
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpointUrl))
                     .header("Content-Type", "application/json")
-                    .timeout(Duration.ofSeconds(10))
+                    // We add the Match-ID as a header. This is cleaner.
+                    .header("X-Match-ID", matchId) 
+                    .timeout(Duration.ofSeconds(20)) // Increased timeout for larger payloads
                     .POST(BodyPublishers.ofString(requestBody))
                     .build();
+    
             httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenAccept(response -> {
-                    System.out.println("ArgentumLogger: Received response. Status: " + response.statusCode());
                     if (response.statusCode() != 200) {
-                         System.err.println("ArgentumStateLogger: Received non-200 response: " + response.body());
+                         System.err.println("ArgentumLogger: Received non-200 response for batch: " + response.body());
                     }
                 })
                 .exceptionally(e -> {
-                    System.err.println("ArgentumStateLogger: HTTP request failed: " + e.getMessage());
+                    System.err.println("ArgentumStateLogger: Batch HTTP request failed: " + e.getMessage());
                     return null;
                 });
+    
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger: Catastrophic failure in sendStateToLogServer.");
+            System.err.println("ArgentumStateLogger: Catastrophic failure in sendBatchToLogServer.");
             e.printStackTrace();
         }
     }
-
     private static SpectatorStateUpdate createSnapshotFromGame(Game game, String currentStep) {
         // This method's logic is correct from the previous step and does not need to change.
         // It's included here just to ensure the file is complete.
