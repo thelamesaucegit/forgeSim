@@ -5,7 +5,6 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
 import forge.game.Game;
-import forge.game.GameOutcome;
 import forge.game.GameObject;
 import forge.game.card.Card;
 import forge.game.combat.Combat;
