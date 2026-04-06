@@ -161,59 +161,66 @@ public class ArgentumStateLogger {
         return snapshot;
     }
 
-    private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
-        ClientCard cc = new ClientCard();
-        cc.entityId = String.valueOf(card.getId());
-        cc.name = card.getName();
-        cc.imageUri = card.getImageKey();
-        cc.cardTypes = new ArrayList<>();
-        for (String token : card.getType().toString().split("\\s+")) {
-            if (!token.isEmpty() && !token.equals("—")) {
-                cc.cardTypes.add(token);
-            }
+private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
+    ClientCard cc = new ClientCard();
+    cc.entityId = String.valueOf(card.getId());
+    cc.name = card.getName();
+    cc.imageUri = card.getImageKey();
+    cc.cardTypes = new ArrayList<>();
+    for (String token : card.getType().toString().split("\\s+")) {
+        if (!token.isEmpty() && !token.equals("—")) {
+            cc.cardTypes.add(token);
         }
-        cc.isTapped = card.isTapped();
-        if (combat != null) {
-            cc.isAttacking = combat.isAttacking(card);
-            cc.isBlocking = combat.isBlocking(card);
-        } else {
-            cc.isAttacking = false;
-            cc.isBlocking = false;
-        }
-        cc.power = card.isCreature() ? card.getNetPower() : null;
-        cc.toughness = card.isCreature() ? card.getNetToughness() : null;
-        cc.damage = card.getDamage();
-        if (card.isAttachedToEntity()) {
-            cc.attachedTo = String.valueOf(card.getAttachedTo().getId());
-        }
-        cc.targets = new ArrayList<>();
-        if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
-            for (SpellAbilityStackInstance si : stack) {
-                if (si.getSourceCard().equals(card)) {
-                    SpellAbility sa = si.getSpellAbility();
-                    if (sa.usesTargeting()) {
-                        for (GameObject target : sa.getTargets()) {
-                            TargetInfo ti = new TargetInfo();
-                            if (target instanceof Card) {
-                                ti.entityId = String.valueOf(target.getId());
-                                ti.type = "Card";
-                            } else if (target instanceof Player) {
-                                ti.entityId = String.valueOf(target.getId());
-                                ti.type = "Player";
-                            } else {
-                                ti.entityId = target.toString();
-                                ti.type = "Other";
-                            }
-                            cc.targets.add(ti);
-                        }
-                    }
-                    break;
-                }
-            }
-        }
-        return cc;
+    }
+    cc.isTapped = card.isTapped();
+    if (combat != null) {
+        cc.isAttacking = combat.isAttacking(card);
+        cc.isBlocking = combat.isBlocking(card);
+    } else {
+        cc.isAttacking = false;
+        cc.isBlocking = false;
+    }
+    cc.power = card.isCreature() ? card.getNetPower() : null;
+    cc.toughness = card.isCreature() ? card.getNetToughness() : null;
+    cc.damage = card.getDamage();
+    if (card.isAttachedToEntity()) {
+        cc.attachedTo = String.valueOf(card.getAttachedTo().getId());
     }
 
+    cc.targets = new ArrayList<>();
+    if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
+        for (SpellAbilityStackInstance si : stack) {
+            if (si.getSourceCard().equals(card)) {
+                SpellAbility sa = si.getSpellAbility();
+                if (sa.usesTargeting()) {
+                    for (GameObject target : sa.getTargets()) {
+                        TargetInfo ti = new TargetInfo();
+                        
+                        // v-v-v-v- THIS IS THE FIX v-v-v-v-
+                        if (target instanceof Card) {
+                            Card targetCard = (Card) target; // Explicit cast
+                            ti.entityId = String.valueOf(targetCard.getId());
+                            ti.type = "Card";
+                        } else if (target instanceof Player) {
+                            Player targetPlayer = (Player) target; // Explicit cast
+                            ti.entityId = String.valueOf(targetPlayer.getId());
+                            ti.type = "Player";
+                        } else {
+                            // Fallback for other potential GameObject types
+                            ti.entityId = target.toString();
+                            ti.type = "Other";
+                        }
+                        // ^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-
+                        
+                        cc.targets.add(ti);
+                    }
+                }
+                break;
+            }
+        }
+    }
+    return cc;
+}
     private static ClientZone createClientZone(Zone zone) {
         ClientZone cz = new ClientZone();
         cz.type = zone.getZoneType().name();
