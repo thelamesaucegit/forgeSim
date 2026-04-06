@@ -8,6 +8,7 @@ import forge.game.Game;
 import forge.game.GameObject;
 import forge.game.card.Card;
 import forge.game.combat.Combat;
+import java.util.Arrays; 
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
