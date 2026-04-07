@@ -6,7 +6,7 @@ import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
 import forge.game.Game;
-import forge.game.GameSnapshot; // <-- The key import
+import forge.game.GameSnapshot;
 import forge.game.GameObject;
 import forge.game.card.Card;
 import forge.game.combat.Combat;
@@ -42,7 +42,6 @@ public class ArgentumStateLogger {
         if (publicUrl != null && !publicUrl.isEmpty()) {
             return publicUrl;
         }
-        // Fallback for local development
         return "http://localhost:3000/api/log-state";
     }
 
@@ -51,11 +50,8 @@ public class ArgentumStateLogger {
             return;
         }
         try {
-            // 1. Create a snapshot of the current game state. This is the crucial fix.
             GameSnapshot snapshotter = new GameSnapshot(game);
             Game gameCopy = snapshotter.makeCopy();
-
-            // 2. Create our SpectatorStateUpdate object from this safe, copied game state.
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(gameCopy, currentStep);
 
             String jsonSnapshot = gson.toJson(snapshot);
@@ -77,9 +73,15 @@ public class ArgentumStateLogger {
             return;
         }
 
+        // v-v-v-v- THIS IS THE FIX v-v-v-v-
+        // The correct way to drain a ConcurrentLinkedQueue is to poll it in a loop.
         List<String> statesToSend = new ArrayList<>();
-        eventQueue.drainTo(statesToSend);
-        
+        String state;
+        while ((state = eventQueue.poll()) != null) {
+            statesToSend.add(state);
+        }
+        // ^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-
+
         if (statesToSend.isEmpty()) {
             return;
         }
@@ -118,7 +120,6 @@ public class ArgentumStateLogger {
         }
     }
 
-    // Renamed from createSnapshotFromGame to avoid confusion with the GameSnapshot class
     private static SpectatorStateUpdate createSpectatorUpdateFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
         ClientGameState gameState = new ClientGameState();
@@ -272,10 +273,13 @@ public class ArgentumStateLogger {
             return null;
         }
         CombatState cs = new CombatState();
+        cs.attackers = new ArrayList<>(); // Initialize the list
+        cs.groups = new ArrayList<>();    // Initialize the list
         for (Card attacker : combat.getAttackers()) {
             cs.attackers.add(String.valueOf(attacker.getId()));
             CombatGroup group = new CombatGroup();
             group.attackerId = String.valueOf(attacker.getId());
+            group.blockers = new ArrayList<>(); // Initialize the list
             for (Card blocker : combat.getBlockers(attacker)) {
                 group.blockers.add(String.valueOf(blocker.getId()));
             }
