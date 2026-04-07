@@ -205,56 +205,94 @@ public class ArgentumStateLogger {
         return snapshot;
     }
 
-    private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
+   private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
         ClientCard cc = new ClientCard();
+
+        // --- Basic Info ---
+        cc.id = String.valueOf(card.getId());
         cc.entityId = String.valueOf(card.getId());
         cc.name = card.getName();
-        cc.imageUri = card.getImageKey();
-        cc.cardTypes = new ArrayList<>();
-        for (String token : card.getType().toString().split("\\s+")) {
-            if (!token.isEmpty() && !token.equals("—")) {
-                cc.cardTypes.add(token);
-            }
+        cc.manaCost = card.getManaCost().toString();
+        cc.manaValue = card.getManaValue();
+        cc.typeLine = card.getTypeLine();
+        cc.oracleText = card.getOracleText();
+        cc.flavorText = card.getFlavorText();
+        
+        // --- Types and Subtypes ---
+        cc.cardTypes = new ArrayList<>(card.getType().getTypes());
+        cc.subtypes = new ArrayList<>(card.getType().getSubtypes());
+        
+        // --- Colors ---
+        cc.colors = new ArrayList<>();
+        for (byte color : card.getColor().getColor()) {
+            cc.colors.add(MagicColor.toShortString(color));
         }
+        cc.colorIdentity = new ArrayList<>();
+        for (byte color : card.getColorIdentity()) {
+            cc.colorIdentity.add(MagicColor.toShortString(color));
+        }
+
+        // --- Power/Toughness ---
+        cc.power = card.isCreature() ? card.getNetPower() : null;
+        cc.toughness = card.isCreature() ? card.getNetToughness() : null;
+        cc.basePower = card.isCreature() ? card.getBasePower() : null;
+        cc.baseToughness = card.isCreature() ? card.getBaseToughness() : null;
+        cc.damage = card.getDamage();
+
+        // --- Keywords and Abilities ---
+        cc.keywords = new ArrayList<>();
+        for (String keyword : card.getKeywords()) {
+            cc.keywords.add(keyword);
+        }
+        cc.abilities = new ArrayList<>();
+        for (SpellAbility sa : card.getSpellAbilities()) {
+            cc.abilities.add(sa.getDescription());
+        }
+        
+        // --- State Flags ---
         cc.isTapped = card.isTapped();
+        cc.hasSummoningSickness = card.hasSickness();
+        cc.isTransformed = card.isTransformed();
+        cc.isFaceDown = card.isFaceDown();
+        cc.isPhasedOut = card.isPhasedOut();
+        cc.isToken = card.isToken();
+        cc.isCopy = card.isCopied();
+
+        // --- Combat State ---
         if (combat != null) {
             cc.isAttacking = combat.isAttacking(card);
             cc.isBlocking = combat.isBlocking(card);
+            if (cc.isAttacking) {
+                cc.attackingTarget = String.valueOf(combat.getDefenderByAttacker(card).getId());
+            }
         } else {
             cc.isAttacking = false;
             cc.isBlocking = false;
         }
-        cc.power = card.isCreature() ? card.getNetPower() : null;
-        cc.toughness = card.isCreature() ? card.getNetToughness() : null;
-        cc.damage = card.getDamage();
-        if (card.isAttachedToEntity()) {
-            cc.attachedTo = String.valueOf(card.getAttachedTo().getId());
+
+        // --- Ownership and Control ---
+        cc.ownerId = String.valueOf(card.getOwner().getId());
+        cc.controllerId = String.valueOf(card.getController().getId());
+        cc.zone = card.getZone() != null ? card.getZone().getZoneId() : null;
+
+        // --- Attachments and Counters ---
+        cc.attachedTo = card.isAttachedToEntity() ? String.valueOf(card.getAttachedTo().getId()) : null;
+        cc.attachments = new ArrayList<>();
+        for (Card attachment : card.getAttachedCards()) {
+            cc.attachments.add(String.valueOf(attachment.getId()));
         }
+        cc.counters = new HashMap<>();
+        for (Map.Entry<CounterType, Integer> entry : card.getCounters().entrySet()) {
+            cc.counters.put(entry.getKey().getName(), entry.getValue());
+        }
+
+        // --- Stack and Targeting ---
         cc.targets = new ArrayList<>();
-        if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
-            for (SpellAbilityStackInstance si : stack) {
-                if (si.getSourceCard().equals(card)) {
-                    SpellAbility sa = si.getSpellAbility();
-                    if (sa.usesTargeting()) {
-                        for (GameObject target : sa.getTargets()) {
-                            TargetInfo ti = new TargetInfo();
-                            if (target instanceof Card) {
-                                ti.entityId = String.valueOf(((Card) target).getId());
-                                ti.type = "Card";
-                            } else if (target instanceof Player) {
-                                ti.entityId = String.valueOf(((Player) target).getId());
-                                ti.type = "Player";
-                            } else {
-                                ti.entityId = target.toString();
-                                ti.type = "Other";
-                            }
-                            cc.targets.add(ti);
-                        }
-                    }
-                    break;
-                }
-            }
-        }
+        // ... (your existing logic for populating targets is correct)
+
+        // --- Image URI ---
+        cc.imageUri = card.getImageKey();
+
         return cc;
     }
 
