@@ -62,7 +62,7 @@ public class Game {
 
     private static int maxId = 0;
     private static int nextId() { return ++maxId; }
-
+ private boolean isLogging = false;
     /** The ID. */
     private int id;
     private final GameRules rules;
@@ -93,7 +93,13 @@ public class Game {
     private final Zone stackZone = new Zone(ZoneType.Stack, this);
     public int AI_TIMEOUT = 5;
     public boolean AI_CAN_USE_TIMEOUT = true;
+  public boolean isLogging() {
+        return this.isLogging;
+    }
 
+    public void setLogging(boolean logging) {
+        this.isLogging = logging;
+    }
     public boolean EXPERIMENTAL_RESTORE_SNAPSHOT = false;
     // While this is false here, its really set by the Match/Preferences
 
