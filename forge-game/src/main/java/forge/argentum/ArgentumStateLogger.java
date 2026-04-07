@@ -8,7 +8,6 @@ import forge.argentum.data.ArgentumData.*;
 import forge.game.Game;
 import forge.game.GameSnapshot; // <-- The key import
 import forge.game.GameObject;
-import forge.game.Match;
 import forge.game.card.Card;
 import forge.game.combat.Combat;
 import forge.game.player.Player;
