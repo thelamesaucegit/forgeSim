@@ -16,7 +16,7 @@ import forge.game.spellability.SpellAbilityStackInstance;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
-
+import forge.game.Match; 
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -46,14 +46,18 @@ public class ArgentumStateLogger {
     }
 
     public static void logState(Game game, String currentStep) {
-        if (game == null || game.getPhaseHandler() == null) {
+        if (game == null || game.getPhaseHandler() == null || game.isGameOver()) {
             return;
         }
         try {
+            // Check to prevent re-entrant calls that cause the infinite loop
+            if (game.isLogging()) return;
+            game.setLogging(true);
+
             GameSnapshot snapshotter = new GameSnapshot(game);
             Game gameCopy = snapshotter.makeCopy();
+            
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(gameCopy, currentStep);
-
             String jsonSnapshot = gson.toJson(snapshot);
             eventQueue.add(jsonSnapshot);
             
@@ -63,8 +67,13 @@ public class ArgentumStateLogger {
                 flushQueue();
             }
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger Error: Failed to create and queue state for step: " + currentStep);
+            System.err.println("ArgentumStateLogger Error: Failed to log state for step " + currentStep);
             e.printStackTrace();
+        } finally {
+            // Always release the lock
+            if (game != null) {
+                game.setLogging(false);
+            }
         }
     }
 
