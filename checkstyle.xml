@@ -13,6 +13,7 @@
 
         <module name="RedundantImport"/>
         <module name="UnusedImports">
+                  <property name="severity" value="warning"/>
             <!-- <property name="processJavadoc" value="false"/> -->
         </module>
 
