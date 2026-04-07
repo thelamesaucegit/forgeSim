@@ -290,8 +290,7 @@ public class ArgentumStateLogger {
         cc.targets = new ArrayList<>();
         // ... (your existing logic for populating targets is correct)
 
-        // --- Image URI ---
-        cc.imageUri = card.getImageKey();
+      
 
         return cc;
     }
