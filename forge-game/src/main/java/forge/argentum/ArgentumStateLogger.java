@@ -5,10 +5,13 @@ package forge.argentum;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
+import forge.card.MagicColor;
 import forge.game.Game;
 import forge.game.GameSnapshot;
 import forge.game.GameObject;
+import forge.game.Match;
 import forge.game.card.Card;
+import forge.game.card.CounterType;
 import forge.game.combat.Combat;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
@@ -16,7 +19,7 @@ import forge.game.spellability.SpellAbilityStackInstance;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
-import forge.game.Match; 
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -27,6 +30,7 @@ import java.util.ArrayList;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 
 public class ArgentumStateLogger {
@@ -50,7 +54,6 @@ public class ArgentumStateLogger {
             return;
         }
         try {
-            // Check to prevent re-entrant calls that cause the infinite loop
             if (game.isLogging()) return;
             game.setLogging(true);
 
@@ -60,10 +63,9 @@ public class ArgentumStateLogger {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(gameCopy, currentStep);
             String jsonSnapshot = gson.toJson(snapshot);
             eventQueue.add(jsonSnapshot);
-                        // Declare a variable of type Match to satisfy the linter.
+            
             final Match match = game.getMatch();
             currentMatchId = match.getMatchId();
-            
 
             if (eventQueue.size() >= BATCH_SIZE) {
                 flushQueue();
@@ -72,7 +74,6 @@ public class ArgentumStateLogger {
             System.err.println("ArgentumStateLogger Error: Failed to log state for step " + currentStep);
             e.printStackTrace();
         } finally {
-            // Always release the lock
             if (game != null) {
                 game.setLogging(false);
             }
@@ -83,21 +84,14 @@ public class ArgentumStateLogger {
         if (eventQueue.isEmpty() || currentMatchId == null) {
             return;
         }
-
-        // v-v-v-v- THIS IS THE FIX v-v-v-v-
-        // The correct way to drain a ConcurrentLinkedQueue is to poll it in a loop.
         List<String> statesToSend = new ArrayList<>();
         String state;
         while ((state = eventQueue.poll()) != null) {
             statesToSend.add(state);
         }
-        // ^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-
-
         if (statesToSend.isEmpty()) {
             return;
         }
-        
-        System.out.println("ArgentumLogger: Flushing queue with " + statesToSend.size() + " states for match " + currentMatchId);
         String jsonBatch = "[" + String.join(",", statesToSend) + "]";
         sendBatchToLogServer(currentMatchId, jsonBatch);
     }
@@ -105,8 +99,6 @@ public class ArgentumStateLogger {
     private static void sendBatchToLogServer(String matchId, String jsonBatch) {
         try {
             String endpointUrl = getLogEndpointUrl();
-            System.out.println("ArgentumLogger: Sending batch of " + (jsonBatch.length() / 1024) + "KB to " + endpointUrl);
-    
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpointUrl))
                     .header("Content-Type", "application/json")
@@ -134,16 +126,12 @@ public class ArgentumStateLogger {
     private static SpectatorStateUpdate createSpectatorUpdateFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
         ClientGameState gameState = new ClientGameState();
-        
         List<Player> players = game.getPlayers();
         Player player1 = players.get(0);
         Player player2 = players.get(1);
-
         Combat currentCombat = game.getPhaseHandler().getCombat();
         MagicStack stack = game.getStack();
-        
         boolean isPreGame = (game.getPhaseHandler().getPhase() == null);
-        
         String currentPhaseName = isPreGame ? "MULLIGAN" : game.getPhaseHandler().getPhase().name();
         String currentStepName = isPreGame ? "OPENING_HAND" : currentStep;
         int currentTurnNumber = isPreGame ? 0 : game.getPhaseHandler().getTurn();
@@ -164,7 +152,6 @@ public class ArgentumStateLogger {
         for (Card card : game.getCardsInGame()) {
             gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
         }
-
         gameState.zones = new ArrayList<>();
         for (Player p : players) {
             for (ZoneType zt : Player.ALL_ZONES) {
@@ -175,19 +162,16 @@ public class ArgentumStateLogger {
             }
         }
         gameState.zones.add(createClientZone(game.getStackZone()));
-
         gameState.players = new ArrayList<>();
         for(Player p : players) {
             gameState.players.add(createClientPlayer(p));
         }
-
         gameState.currentPhase = currentPhaseName;
         gameState.currentStep = currentStepName;
         gameState.activePlayerId = activePlayerId;
         gameState.priorityPlayerId = priorityPlayerId;
         gameState.turnNumber = currentTurnNumber;
         gameState.isGameOver = game.isGameOver();
-        
         String winnerId = null;
         if (gameState.isGameOver) {
             for (Player p : players) {
@@ -198,17 +182,15 @@ public class ArgentumStateLogger {
             }
         }
         gameState.winnerId = winnerId;
-        
         gameState.gameLog = Collections.singletonList(isPreGame ? "> Drawing opening hands..." : "> Turn " + gameState.turnNumber + ": " + currentStep.replace("_", " "));
         gameState.combat = createCombatState(currentCombat);
         snapshot.gameState = gameState;
         return snapshot;
     }
 
-   private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
+    private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
         ClientCard cc = new ClientCard();
-
-        // --- Basic Info ---
+        
         cc.id = String.valueOf(card.getId());
         cc.entityId = String.valueOf(card.getId());
         cc.name = card.getName();
@@ -217,39 +199,25 @@ public class ArgentumStateLogger {
         cc.typeLine = card.getTypeLine();
         cc.oracleText = card.getOracleText();
         cc.flavorText = card.getFlavorText();
-        
-        // --- Types and Subtypes ---
         cc.cardTypes = new ArrayList<>(card.getType().getTypes());
         cc.subtypes = new ArrayList<>(card.getType().getSubtypes());
         
-        // --- Colors ---
         cc.colors = new ArrayList<>();
-        for (byte color : card.getColor().getColor()) {
-            cc.colors.add(MagicColor.toShortString(color));
-        }
+        for (byte color : card.getColor().getColor()) { cc.colors.add(MagicColor.toShortString(color)); }
+        
         cc.colorIdentity = new ArrayList<>();
-        for (byte color : card.getColorIdentity()) {
-            cc.colorIdentity.add(MagicColor.toShortString(color));
-        }
+        for (byte color : card.getColorIdentity()) { cc.colorIdentity.add(MagicColor.toShortString(color)); }
 
-        // --- Power/Toughness ---
         cc.power = card.isCreature() ? card.getNetPower() : null;
         cc.toughness = card.isCreature() ? card.getNetToughness() : null;
         cc.basePower = card.isCreature() ? card.getBasePower() : null;
         cc.baseToughness = card.isCreature() ? card.getBaseToughness() : null;
         cc.damage = card.getDamage();
-
-        // --- Keywords and Abilities ---
-        cc.keywords = new ArrayList<>();
-        for (String keyword : card.getKeywords()) {
-            cc.keywords.add(keyword);
-        }
-        cc.abilities = new ArrayList<>();
-        for (SpellAbility sa : card.getSpellAbilities()) {
-            cc.abilities.add(sa.getDescription());
-        }
+        cc.keywords = new ArrayList<>(card.getKeywords());
         
-        // --- State Flags ---
+        cc.abilities = new ArrayList<>();
+        for (SpellAbility sa : card.getSpellAbilities()) { cc.abilities.add(sa.getDescription()); }
+        
         cc.isTapped = card.isTapped();
         cc.hasSummoningSickness = card.hasSickness();
         cc.isTransformed = card.isTransformed();
@@ -258,40 +226,53 @@ public class ArgentumStateLogger {
         cc.isToken = card.isToken();
         cc.isCopy = card.isCopied();
 
-        // --- Combat State ---
-        if (combat != null) {
-            cc.isAttacking = combat.isAttacking(card);
-            cc.isBlocking = combat.isBlocking(card);
-            if (cc.isAttacking) {
-                cc.attackingTarget = String.valueOf(combat.getDefenderByAttacker(card).getId());
-            }
-        } else {
-            cc.isAttacking = false;
-            cc.isBlocking = false;
-        }
-
-        // --- Ownership and Control ---
+        cc.isAttacking = combat != null && combat.isAttacking(card);
+        cc.isBlocking = combat != null && combat.isBlocking(card);
+        cc.attackingTarget = (cc.isAttacking && combat != null) ? String.valueOf(combat.getDefenderByAttacker(card).getId()) : null;
+        
         cc.ownerId = String.valueOf(card.getOwner().getId());
         cc.controllerId = String.valueOf(card.getController().getId());
         cc.zone = card.getZone() != null ? card.getZone().getZoneId() : null;
 
-        // --- Attachments and Counters ---
         cc.attachedTo = card.isAttachedToEntity() ? String.valueOf(card.getAttachedTo().getId()) : null;
         cc.attachments = new ArrayList<>();
-        for (Card attachment : card.getAttachedCards()) {
-            cc.attachments.add(String.valueOf(attachment.getId()));
-        }
+        for (Card attachment : card.getAttachedCards()) { cc.attachments.add(String.valueOf(attachment.getId())); }
+        
         cc.counters = new HashMap<>();
-        for (Map.Entry<CounterType, Integer> entry : card.getCounters().entrySet()) {
-            cc.counters.put(entry.getKey().getName(), entry.getValue());
-        }
-
-        // --- Stack and Targeting ---
+        for (Map.Entry<CounterType, Integer> entry : card.getCounters().entrySet()) { cc.counters.put(entry.getKey().getName(), entry.getValue()); }
+        
         cc.targets = new ArrayList<>();
-        // ... (your existing logic for populating targets is correct)
-
-      
-
+        if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
+            for (SpellAbilityStackInstance si : stack) {
+                if (si.getSourceCard().equals(card)) {
+                    SpellAbility sa = si.getSpellAbility();
+                    if (sa.usesTargeting()) {
+                        for (GameObject target : sa.getTargets()) {
+                            TargetInfo ti = new TargetInfo();
+                            if (target instanceof Card) {
+                                ti.entityId = String.valueOf(target.getId());
+                                ti.type = "Card";
+                            } else if (target instanceof Player) {
+                                ti.entityId = String.valueOf(target.getId());
+                                ti.type = "Player";
+                            } else {
+                                continue; // Skip non-card/player targets for now
+                            }
+                            cc.targets.add(ti);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        
+        cc.imageUri = null; // Per your requirement, we do not send image data from the backend.
+        
+        // Default empty values for complex types not easily available in the sim
+        cc.activeEffects = new ArrayList<>();
+        cc.rulings = new ArrayList<>();
+        cc.linkedExile = new ArrayList<>();
+        
         return cc;
     }
 
@@ -321,13 +302,13 @@ public class ArgentumStateLogger {
             return null;
         }
         CombatState cs = new CombatState();
-        cs.attackers = new ArrayList<>(); // Initialize the list
-        cs.groups = new ArrayList<>();    // Initialize the list
+        cs.attackers = new ArrayList<>();
+        cs.groups = new ArrayList<>();
         for (Card attacker : combat.getAttackers()) {
             cs.attackers.add(String.valueOf(attacker.getId()));
             CombatGroup group = new CombatGroup();
             group.attackerId = String.valueOf(attacker.getId());
-            group.blockers = new ArrayList<>(); // Initialize the list
+            group.blockers = new ArrayList<>();
             for (Card blocker : combat.getBlockers(attacker)) {
                 group.blockers.add(String.valueOf(blocker.getId()));
             }
