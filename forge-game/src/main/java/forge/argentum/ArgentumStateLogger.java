@@ -60,8 +60,10 @@ public class ArgentumStateLogger {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(gameCopy, currentStep);
             String jsonSnapshot = gson.toJson(snapshot);
             eventQueue.add(jsonSnapshot);
+                        // Declare a variable of type Match to satisfy the linter.
+            final Match match = game.getMatch();
+            currentMatchId = match.getMatchId();
             
-            currentMatchId = game.getMatch().getMatchId();
 
             if (eventQueue.size() >= BATCH_SIZE) {
                 flushQueue();
