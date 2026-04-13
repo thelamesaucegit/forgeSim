@@ -1,3 +1,5 @@
+//server.ts
+
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -109,6 +111,25 @@ async function spawnMatchProcess({ new: payload }: any) {
             } else {
                 console.log(`[DB] Schedule row completed for sim_match ${matchId}, winner team: ${winnerTeamId ?? 'draw'}`);
             }
+            const { data: scheduleRow } = await supabase
+    .from('schedule')
+    .select('weekly_matchup_id, team1_id, team2_id')
+    .eq('sim_match_id', matchId)
+    .maybeSingle();
+
+if (scheduleRow?.weekly_matchup_id) {
+    // winner is the player name string containing the team UUID
+    const winnerTeamId = [team1_id, team2_id].find(id => id && winner.includes(id)) ?? null;
+    
+    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/record-sim-result`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+            weeklyMatchupId: scheduleRow.weekly_matchup_id,
+            winnerTeamId,
+        }),
+    });
+}
         });
 
     } catch (e) { console.error(`[FATAL] for ${matchId}:`, e); }
