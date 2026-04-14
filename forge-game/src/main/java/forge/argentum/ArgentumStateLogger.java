@@ -1,17 +1,16 @@
-// src/main/java/forge/argentum/ArgentumStateLogger.java
+// /usr/src/app/forge-game/src/main/java/forge/argentum/ArgentumStateLogger.java
 
 package forge.argentum;
 
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
-import forge.card.MagicColor;
+import forge.card.CardTypeView;
 import forge.game.Game;
 import forge.game.GameSnapshot;
 import forge.game.GameObject;
 import forge.game.Match;
 import forge.game.card.Card;
-import forge.game.card.CounterType;
 import forge.game.combat.Combat;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
@@ -32,6 +31,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
 
 public class ArgentumStateLogger {
 
@@ -43,10 +43,7 @@ public class ArgentumStateLogger {
 
     private static String getLogEndpointUrl() {
         String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
-        if (publicUrl != null && !publicUrl.isEmpty()) {
-            return publicUrl;
-        }
-        return "http://localhost:3000/api/log-state";
+        return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-state";
     }
 
     public static void logState(Game game, String currentStep) {
@@ -66,7 +63,6 @@ public class ArgentumStateLogger {
             
             final Match match = game.getMatch();
             currentMatchId = match.getMatchId();
-
             if (eventQueue.size() >= BATCH_SIZE) {
                 flushQueue();
             }
@@ -131,6 +127,7 @@ public class ArgentumStateLogger {
         Player player2 = players.get(1);
         Combat currentCombat = game.getPhaseHandler().getCombat();
         MagicStack stack = game.getStack();
+
         boolean isPreGame = (game.getPhaseHandler().getPhase() == null);
         String currentPhaseName = isPreGame ? "MULLIGAN" : game.getPhaseHandler().getPhase().name();
         String currentStepName = isPreGame ? "OPENING_HAND" : currentStep;
@@ -152,6 +149,7 @@ public class ArgentumStateLogger {
         for (Card card : game.getCardsInGame()) {
             gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
         }
+
         gameState.zones = new ArrayList<>();
         for (Player p : players) {
             for (ZoneType zt : Player.ALL_ZONES) {
@@ -162,16 +160,19 @@ public class ArgentumStateLogger {
             }
         }
         gameState.zones.add(createClientZone(game.getStackZone()));
+
         gameState.players = new ArrayList<>();
         for(Player p : players) {
             gameState.players.add(createClientPlayer(p));
         }
+
         gameState.currentPhase = currentPhaseName;
         gameState.currentStep = currentStepName;
         gameState.activePlayerId = activePlayerId;
         gameState.priorityPlayerId = priorityPlayerId;
         gameState.turnNumber = currentTurnNumber;
         gameState.isGameOver = game.isGameOver();
+
         String winnerId = null;
         if (gameState.isGameOver) {
             for (Player p : players) {
@@ -188,58 +189,21 @@ public class ArgentumStateLogger {
         return snapshot;
     }
 
+    // --- THIS IS THE FIX ---
     private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
         ClientCard cc = new ClientCard();
         
-        cc.id = String.valueOf(card.getId());
         cc.entityId = String.valueOf(card.getId());
         cc.name = card.getName();
-        cc.manaCost = card.getManaCost().toString();
-        cc.manaValue = card.getManaValue();
-        cc.typeLine = card.getTypeLine();
-        cc.oracleText = card.getOracleText();
-        cc.flavorText = card.getFlavorText();
-        cc.cardTypes = new ArrayList<>(card.getType().getTypes());
-        cc.subtypes = new ArrayList<>(card.getType().getSubtypes());
-        
-        cc.colors = new ArrayList<>();
-        for (byte color : card.getColor().getColor()) { cc.colors.add(MagicColor.toShortString(color)); }
-        
-        cc.colorIdentity = new ArrayList<>();
-        for (byte color : card.getColorIdentity()) { cc.colorIdentity.add(MagicColor.toShortString(color)); }
-
-        cc.power = card.isCreature() ? card.getNetPower() : null;
-        cc.toughness = card.isCreature() ? card.getNetToughness() : null;
-        cc.basePower = card.isCreature() ? card.getBasePower() : null;
-        cc.baseToughness = card.isCreature() ? card.getBaseToughness() : null;
-        cc.damage = card.getDamage();
-        cc.keywords = new ArrayList<>(card.getKeywords());
-        
-        cc.abilities = new ArrayList<>();
-        for (SpellAbility sa : card.getSpellAbilities()) { cc.abilities.add(sa.getDescription()); }
-        
+        cc.imageUri = null; // As required, we do not send image data from the backend.
+        cc.cardTypes = card.getType().getTypes().stream().map(Object::toString).collect(Collectors.toList());
         cc.isTapped = card.isTapped();
-        cc.hasSummoningSickness = card.hasSickness();
-        cc.isTransformed = card.isTransformed();
-        cc.isFaceDown = card.isFaceDown();
-        cc.isPhasedOut = card.isPhasedOut();
-        cc.isToken = card.isToken();
-        cc.isCopy = card.isCopied();
-
         cc.isAttacking = combat != null && combat.isAttacking(card);
         cc.isBlocking = combat != null && combat.isBlocking(card);
-        cc.attackingTarget = (cc.isAttacking && combat != null) ? String.valueOf(combat.getDefenderByAttacker(card).getId()) : null;
-        
-        cc.ownerId = String.valueOf(card.getOwner().getId());
-        cc.controllerId = String.valueOf(card.getController().getId());
-        cc.zone = card.getZone() != null ? card.getZone().getZoneId() : null;
-
+        cc.power = card.isCreature() ? card.getNetPower() : null;
+        cc.toughness = card.isCreature() ? card.getNetToughness() : null;
+        cc.damage = card.getDamage();
         cc.attachedTo = card.isAttachedToEntity() ? String.valueOf(card.getAttachedTo().getId()) : null;
-        cc.attachments = new ArrayList<>();
-        for (Card attachment : card.getAttachedCards()) { cc.attachments.add(String.valueOf(attachment.getId())); }
-        
-        cc.counters = new HashMap<>();
-        for (Map.Entry<CounterType, Integer> entry : card.getCounters().entrySet()) { cc.counters.put(entry.getKey().getName(), entry.getValue()); }
         
         cc.targets = new ArrayList<>();
         if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
@@ -247,16 +211,16 @@ public class ArgentumStateLogger {
                 if (si.getSourceCard().equals(card)) {
                     SpellAbility sa = si.getSpellAbility();
                     if (sa.usesTargeting()) {
-                        for (GameObject target : sa.getTargets()) {
+                        for (GameObject target : sa.getTargets().getTargets()) {
                             TargetInfo ti = new TargetInfo();
                             if (target instanceof Card) {
-                                ti.entityId = String.valueOf(target.getId());
+                                ti.entityId = String.valueOf(((Card) target).getId());
                                 ti.type = "Card";
                             } else if (target instanceof Player) {
-                                ti.entityId = String.valueOf(target.getId());
+                                ti.entityId = String.valueOf(((Player) target).getId());
                                 ti.type = "Player";
                             } else {
-                                continue; // Skip non-card/player targets for now
+                                continue;
                             }
                             cc.targets.add(ti);
                         }
@@ -266,15 +230,9 @@ public class ArgentumStateLogger {
             }
         }
         
-        cc.imageUri = null; // Per your requirement, we do not send image data from the backend.
-        
-        // Default empty values for complex types not easily available in the sim
-        cc.activeEffects = new ArrayList<>();
-        cc.rulings = new ArrayList<>();
-        cc.linkedExile = new ArrayList<>();
-        
         return cc;
     }
+    // --- END FIX ---
 
     private static ClientZone createClientZone(Zone zone) {
         ClientZone cz = new ClientZone();
