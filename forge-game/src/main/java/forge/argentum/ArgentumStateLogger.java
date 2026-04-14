@@ -15,6 +15,7 @@ import forge.game.combat.Combat;
 import forge.game.player.Player;
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityStackInstance;
+import forge.game.spellability.TargetChoices;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
@@ -189,14 +190,13 @@ public class ArgentumStateLogger {
         return snapshot;
     }
 
-    // --- THIS IS THE FIX ---
     private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
         ClientCard cc = new ClientCard();
         
         cc.entityId = String.valueOf(card.getId());
         cc.name = card.getName();
-        cc.imageUri = null; // As required, we do not send image data from the backend.
-        cc.cardTypes = card.getType().getTypes().stream().map(Object::toString).collect(Collectors.toList());
+        cc.imageUri = null;
+        cc.cardTypes = card.getType().getCoreTypes().stream().map(Object::toString).collect(Collectors.toList()); // Corrected this line
         cc.isTapped = card.isTapped();
         cc.isAttacking = combat != null && combat.isAttacking(card);
         cc.isBlocking = combat != null && combat.isBlocking(card);
@@ -211,18 +211,21 @@ public class ArgentumStateLogger {
                 if (si.getSourceCard().equals(card)) {
                     SpellAbility sa = si.getSpellAbility();
                     if (sa.usesTargeting()) {
-                        for (GameObject target : sa.getTargets().getTargets()) {
-                            TargetInfo ti = new TargetInfo();
-                            if (target instanceof Card) {
-                                ti.entityId = String.valueOf(((Card) target).getId());
-                                ti.type = "Card";
-                            } else if (target instanceof Player) {
-                                ti.entityId = String.valueOf(((Player) target).getId());
-                                ti.type = "Player";
-                            } else {
-                                continue;
+                        TargetChoices targets = sa.getTargets();
+                        if (targets != null) { // TargetChoices itself is the list
+                            for (GameObject target : targets) {
+                                TargetInfo ti = new TargetInfo();
+                                if (target instanceof Card) {
+                                    ti.entityId = String.valueOf(((Card) target).getId());
+                                    ti.type = "Card";
+                                } else if (target instanceof Player) {
+                                    ti.entityId = String.valueOf(((Player) target).getId());
+                                    ti.type = "Player";
+                                } else {
+                                    continue;
+                                }
+                                cc.targets.add(ti);
                             }
-                            cc.targets.add(ti);
                         }
                     }
                     break;
@@ -232,7 +235,6 @@ public class ArgentumStateLogger {
         
         return cc;
     }
-    // --- END FIX ---
 
     private static ClientZone createClientZone(Zone zone) {
         ClientZone cz = new ClientZone();
