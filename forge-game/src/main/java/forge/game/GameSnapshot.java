@@ -1,4 +1,5 @@
-//forge-game/src/main/java/forge/game/GameSnapshot.java
+/* forge-game/src/main/java/forge/game/GameSnapshot.java
+    */
 
 package forge.game;
 
