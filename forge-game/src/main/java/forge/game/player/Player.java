@@ -1,4 +1,4 @@
-/*
+/* forge-game/src/main/java/forge/game/player/Player.java
  * Forge: Play Magic: the Gathering.
  * Copyright (C) 2011  Forge Team
  *
