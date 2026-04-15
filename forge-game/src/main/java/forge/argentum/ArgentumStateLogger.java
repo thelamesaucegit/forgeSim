@@ -34,6 +34,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class ArgentumStateLogger {
 
@@ -47,6 +48,8 @@ public class ArgentumStateLogger {
         String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
         return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-state";
     }
+    private static final java.util.concurrent.atomic.AtomicInteger callCount = 
+    new java.util.concurrent.atomic.AtomicInteger(0);
 
     public static void logState(Game game, String currentStep) {
       if (game.getAge() == null || game.getAge().ordinal() <= GameStage.Mulligan.ordinal()) {
