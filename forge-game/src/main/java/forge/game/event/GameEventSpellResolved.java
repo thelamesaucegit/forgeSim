@@ -1,3 +1,5 @@
+//forge-game/src/main/java/forge/game/event/GameEventSpellResolved.java
+
 package forge.game.event;
 
 import forge.game.spellability.SpellAbility;
