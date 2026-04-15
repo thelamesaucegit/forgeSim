@@ -52,20 +52,20 @@ public class ArgentumStateLogger {
     new java.util.concurrent.atomic.AtomicInteger(0);
 
     public static void logState(Game game, String currentStep) {
-      if (game.getAge() == null || game.getAge().ordinal() <= GameStage.Mulligan.ordinal()) {
-        return;
-
-          int n = callCount.incrementAndGet();
-    // Every 25 calls, print the caller chain so we can see what's looping
-    if (n % 25 == 0) {
-        System.err.println("[ArgDiag] logState call #" + n 
-            + " | step=" + currentStep 
-            + " | stackSize=" + game.getStack().size());
-        StackTraceElement[] trace = Thread.currentThread().getStackTrace();
-        for (int i = 2; i < Math.min(10, trace.length); i++) {
-            System.err.println("    " + trace[i]);
+       if (game == null || game.getPhaseHandler() == null || game.isGameOver() || game.getAge() == null || game.getAge().ordinal() <= GameStage.Mulligan.ordinal()) {
+            return;
         }
-    }
+
+        int n = callCount.incrementAndGet();
+        if (n % 25 == 0) {
+            System.err.println("[ArgDiag] logState call #" + n 
+                + " | step=" + currentStep 
+                + " | stackSize=" + game.getStack().size());
+            StackTraceElement[] trace = Thread.currentThread().getStackTrace();
+            for (int i = 2; i < Math.min(10, trace.length); i++) {
+                System.err.println("    " + trace[i]);
+            }
+        }
         try {
             if (game.isLogging()) return;
             game.setLogging(true);
