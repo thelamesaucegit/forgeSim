@@ -91,7 +91,7 @@ public class ArgentumStateLogger {
             }
         }
     }
-    }
+    
 
     public static void flushQueue() {
         if (eventQueue.isEmpty() || currentMatchId == null) {
