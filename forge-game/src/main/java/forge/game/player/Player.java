@@ -894,7 +894,7 @@ public class Player extends GameEntity implements Comparable<Player> {
         if (table != null) {
             table.put(source, this, counterType, addAmount);
         }
-            ArgentumStateLogger.logState(getGame(), "ACTION_ADD_COUNTER");
+          //  ArgentumStateLogger.logState(getGame(), "ACTION_ADD_COUNTER");
 
     }
 
