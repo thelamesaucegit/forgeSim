@@ -3,54 +3,47 @@
 import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-// Ensure these environment variables are set in your deployment environment (e.g., DigitalOcean App Platform)
-// and in a .env.local file for local development.
+const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
 
+// The Java logger sends an ARRAY of states, not an object.
+type LogStateRequestBody = object[];
 
-// This is a server-side only Supabase client. It uses the powerful service_role key
-// which should never be exposed to the browser.
-  const supabase = createClient(process.env.NEXT_PUBLIC_SUPABASE_URL!, process.env.SUPABASE_SERVICE_KEY!);
-
-
-// Define the shape of the data we expect to receive from the Java logger
-// This provides type safety and prevents 'any' types.
-interface LogStateRequestBody {
-  matchId: string;
-  state: object; // The SpectatorStateUpdate from Java will be deserialized into a generic object
-}
-
-// This function is the core of the API route. It handles incoming POST requests.
 export async function POST(request: Request) {
   try {
-    // 1. Parse the incoming request body as JSON.
-    const body = (await request.json()) as LogStateRequestBody;
-    const { matchId, state } = body;
+    // --- THIS IS THE FIX for "Method Not Allowed" ---
+    // 1. Get the match ID from the request HEADER, not the body.
+    const matchId = request.headers.get('x-match-id');
 
-    // 2. Validate the payload.
-    if (!matchId || !state) {
-      return NextResponse.json({ error: 'Missing matchId or state payload' }, { status: 400 });
+    // 2. Get the array of states from the body.
+    const states = (await request.json()) as LogStateRequestBody;
+    
+    if (!matchId || !states || !Array.isArray(states) || states.length === 0) {
+      return NextResponse.json({ error: 'Missing x-match-id header or state payload array' }, { status: 400 });
     }
 
-    // 3. Call the PostgreSQL function we created earlier to append the new state.
-    //    Using an RPC (Remote Procedure Call) is the recommended way to interact with db functions.
-    //    The function name `append_to_match_logs` and its parameters must match what we defined in the SQL editor.
-    const { error } = await supabase.rpc('append_to_match_logs', {
+    // 3. Call the RPC function for each state in the batch.
+    //    Using Promise.all to run them concurrently for better performance.
+    const rpcPromises = states.map(state => 
+      supabase.rpc('append_to_match_logs', {
         match_id_to_append: matchId,
         new_state_to_append: state
-    });
+      })
+    );
 
-    // 4. Handle any potential database errors.
-    if (error) {
-      console.error('Supabase RPC error while appending log:', error);
-      return NextResponse.json({ error: 'Failed to write log to database', details: error.message }, { status: 500 });
+    const results = await Promise.all(rpcPromises);
+
+    // Check if any of the RPC calls failed
+    const firstError = results.find(res => res.error);
+    if (firstError) {
+      console.error('Supabase RPC error while appending log batch:', firstError.error);
+      return NextResponse.json({ error: 'Failed to write one or more logs to database', details: firstError.error.message }, { status: 500 });
     }
+    // --- END FIX ---
 
-    // 5. If successful, return a success message.
-    return NextResponse.json({ message: 'Log received and processed successfully' });
-
+    return NextResponse.json({ message: 'Log batch received and processed successfully' });
   } catch (err: unknown) {
     const error = err as Error;
     console.error('API Error in /api/log-state:', error);
-    return NextResponse.json({ error: 'Invalid request body. Ensure it is valid JSON.', details: error.message }, { status: 400 });
+    return NextResponse.json({ error: 'Invalid request body. Ensure it is a valid JSON array.', details: error.message }, { status: 400 });
   }
 }
