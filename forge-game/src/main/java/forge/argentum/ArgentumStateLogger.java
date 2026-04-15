@@ -2,6 +2,7 @@
 
 package forge.argentum;
 
+import forge.game.GameStage;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
@@ -48,9 +49,9 @@ public class ArgentumStateLogger {
     }
 
     public static void logState(Game game, String currentStep) {
-        if (game == null || game.getPhaseHandler() == null || game.isGameOver()) {
-            return;
-        }
+      if (game.getAge() == null || game.getAge().ordinal() <= GameStage.Mulligan.ordinal()) {
+        return;
+    }
         try {
             if (game.isLogging()) return;
             game.setLogging(true);
