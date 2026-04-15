@@ -52,7 +52,11 @@ public class ArgentumStateLogger {
     new java.util.concurrent.atomic.AtomicInteger(0);
 
     public static void logState(Game game, String currentStep) {
-       if (game == null || game.getPhaseHandler() == null || game.isGameOver() || game.getAge() == null || game.getAge().ordinal() <= GameStage.Mulligan.ordinal()) {
+        if (game.isCopiedGame()) {
+            return;
+        }
+        
+        if (game == null || game.getPhaseHandler() == null || game.isGameOver() || game.getAge() == null || game.getAge().ordinal() <= GameStage.Mulligan.ordinal()) {
             return;
         }
 
