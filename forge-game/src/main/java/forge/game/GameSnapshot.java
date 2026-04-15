@@ -188,7 +188,7 @@ public class GameSnapshot {
                 }
                 continue;
             }
-            System.out.println("Adding " + origEntry.getSpellAbility() + " to stack");
+            //System.out.println("Adding " + origEntry.getSpellAbility() + " to stack");
             SpellAbility origSa = origEntry.getSpellAbility();
             Card origHostCard = origSa.getHostCard();
             Card newCard = findBy(toGame, origHostCard);
