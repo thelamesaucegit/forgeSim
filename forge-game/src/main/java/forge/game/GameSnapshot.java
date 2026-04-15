@@ -103,7 +103,7 @@ public class GameSnapshot {
                     }
                 }
             }
-            for (SpellAbility sa : c.getAllSpellAbilities()) {
+            for (SpellAbility sa : c.getSpellAbilities()) {
                 Player activatingPlayer = sa.getActivatingPlayer();
                 if (activatingPlayer != null && activatingPlayer.getGame() != toGame) {
                     sa.setActivatingPlayer(findBy(toGame, activatingPlayer));
