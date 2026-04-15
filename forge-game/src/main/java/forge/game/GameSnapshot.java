@@ -1,3 +1,5 @@
+//forge-game/src/main/java/forge/game/GameSnapshot.java
+
 package forge.game;
 
 import com.google.common.collect.Lists;
