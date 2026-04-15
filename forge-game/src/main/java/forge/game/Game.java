@@ -1,3 +1,5 @@
+//forge-game/src/main/java/forge/game/Game.java
+
 /*
  * Forge: Play Magic: the Gathering.
  * Copyright (C) 2011  Forge Team
@@ -59,10 +61,17 @@ import java.util.function.Predicate;
  * Represents the state of a <i>single game</i>, a new instance is created for each game.
  */
 public class Game {
-
+private boolean isCopy = false;
     private static int maxId = 0;
     private static int nextId() { return ++maxId; }
  private boolean isLogging = false;
+     public boolean isCopiedGame() {
+        return this.isCopy;
+    }
+
+    public void setCopiedGame(boolean isCopy) {
+        this.isCopy = isCopy;
+    }
     /** The ID. */
     private int id;
     private final GameRules rules;
@@ -71,6 +80,7 @@ public class Game {
     private final PlayerCollection lostPlayers = new PlayerCollection();
 
     private List<Card> activePlanes = null;
+
 
     public final Untap untap;
     public final Phase upkeep;

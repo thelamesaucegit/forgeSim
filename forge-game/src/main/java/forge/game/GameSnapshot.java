@@ -51,6 +51,7 @@ public class GameSnapshot {
         GameRules currentRules = origGame.getRules();
         Match newMatch = new Match(currentRules, newPlayers, origGame.getView().getTitle());
         newGame = new Game(newPlayers, currentRules, newMatch);
+                newGame.setCopiedGame(true); // Mark this Game instance as a copy
         restore = false;
         assignGameState(origGame, newGame, includeStack);
         return newGame;
