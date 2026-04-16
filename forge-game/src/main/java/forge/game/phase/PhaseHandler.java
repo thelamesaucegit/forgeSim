@@ -263,7 +263,6 @@ public class PhaseHandler implements java.io.Serializable {
                     if (playerTurn.getCardsIn(ZoneType.Battlefield).anyMatch(Card::isContraption)) {
                         playerTurn.advanceCrankCounter();
                     }
-            ArgentumStateLogger.logState(game, "UPKEEP_STEP");
 
                     break;
 
@@ -301,7 +300,6 @@ public class PhaseHandler implements java.io.Serializable {
                     nCombatsThisTurn++;
                     combat = new Combat(playerTurn);
                     game.getBeginOfCombat().executeUntil(playerTurn);
-                                ArgentumStateLogger.logState(game, "COMBAT_BEGIN_STEP");
 
                     //PhaseUtil.verifyCombat();
                     break;
@@ -313,7 +311,6 @@ public class PhaseHandler implements java.io.Serializable {
                     game.getStack().unfreezeStack();
 
                     givePriorityToPlayer = inCombat();
-                                ArgentumStateLogger.logState(game, "DECLARE_ATTACKERS_STEP");
 
                     break;
 
@@ -322,7 +319,6 @@ public class PhaseHandler implements java.io.Serializable {
                     game.getStack().freezeStack(null);
                     declareBlockersTurnBasedAction();
                     game.getStack().unfreezeStack();
-                                ArgentumStateLogger.logState(game, "DECLARE_BLOCKERS_STEP");
 
                     break;
 
@@ -336,7 +332,6 @@ public class PhaseHandler implements java.io.Serializable {
                         givePriorityToPlayer = false;
                     } else {
                         combat.dealAssignedDamage();
-                                        ArgentumStateLogger.logState(game, "FIRST_STRIKE_DAMAGE_STEP");
 
                     }
                 
@@ -351,7 +346,6 @@ public class PhaseHandler implements java.io.Serializable {
                         givePriorityToPlayer = false;
                     } else {
                         combat.dealAssignedDamage();
-                                        ArgentumStateLogger.logState(game, "COMBAT_DAMAGE_STEP");
                     }
                     break;
 
@@ -361,7 +355,6 @@ public class PhaseHandler implements java.io.Serializable {
                         c.onEndOfCombat(playerTurn);
                     }
                     game.getEndOfCombat().executeAt();
-            ArgentumStateLogger.logState(game, "END_COMBAT_STEP");
 
                     //SDisplayUtil.showTab(EDocID.REPORT_STACK.getDoc());
                     break;
