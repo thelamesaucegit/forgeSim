@@ -11,6 +11,7 @@ import forge.card.CardTypeView;
 import forge.game.Game;
 import forge.game.GameObject;
 import forge.game.Match;
+import forge.game.ability.AbilityKey; // <-- FIX: Import AbilityKey
 import forge.game.combat.Combat;
 import forge.game.card.Card;
 import forge.game.event.*;
@@ -48,8 +49,16 @@ public class ArgentumStateLogger {
 
     @Subscribe
     public void onGameEvent(GameEvent event) {
-        Game game = event.getGame();
-        
+        // --- FIX: Get the Game object reliably from the event parameters ---
+        if (!event.getParams().containsKey("Game")) {
+            return; // Not an event that contains the game state
+        }
+        Object gameObj = event.getParams().get("Game");
+        if (!(gameObj instanceof Game)) {
+            return;
+        }
+        Game game = (Game) gameObj;
+        // --- END FIX ---
         if (event instanceof GameEventTurnPhase || 
             event instanceof GameEventSpellResolved ||
             event instanceof GameEventSpellAbilityCast ||
