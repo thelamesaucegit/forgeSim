@@ -99,7 +99,6 @@ public class DrawEffect extends SpellAbilityEffect {
             if (sa.hasParam("RememberDrawn")) {
                 source.addRemembered(drawn);
             }
-             ArgentumStateLogger.logState(sa.getActivatingPlayer().getGame(), "EFFECT_DRAW");
 
         }
     }
