@@ -171,7 +171,7 @@ public class AttachEffect extends SpellAbilityEffect {
             }
             table.triggerChangesZoneAll(game, sa);
         }
-            ArgentumStateLogger.logState(game, "ACTION_ATTACH");
+            //ArgentumStateLogger.logState(game, "ACTION_ATTACH");
 
     }
 
