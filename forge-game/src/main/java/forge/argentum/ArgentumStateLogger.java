@@ -2,13 +2,24 @@
 
 package forge.argentum;
 
-import com.google.common.eventbus.Subscribe; // Import Subscribe annotation
+// --- FIX: Add all necessary imports ---
+import com.google.common.eventbus.Subscribe;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
 import forge.game.Game;
+import forge.game.GameObject;
 import forge.game.Match;
-import forge.game.event.*; // Import all game events
+import forge.game.combat.Combat;
+import forge.game.card.Card;
+import forge.game.event.*;
+import forge.game.player.Player;
+import forge.game.spellability.SpellAbility;
+import forge.game.spellability.SpellAbilityStackInstance;
+import forge.game.spellability.TargetChoices;
+import forge.game.zone.MagicStack;
+import forge.game.zone.Zone;
+import forge.game.zone.ZoneType;
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -17,8 +28,13 @@ import java.net.http.HttpResponse;
 import java.net.http.HttpRequest.BodyPublishers;
 import java.time.Duration;
 import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
 import java.util.List;
 import java.util.concurrent.ConcurrentLinkedQueue;
+import java.util.stream.Collectors;
+// --- END FIX ---
+
 
 public class ArgentumStateLogger {
 
@@ -32,8 +48,6 @@ public class ArgentumStateLogger {
     public void onGameEvent(GameEvent event) {
         Game game = event.getGame();
         
-        // Only log events that are likely to cause a visual change.
-        // This is the key to reducing log spam.
         if (event instanceof GameEventTurnPhase || 
             event instanceof GameEventSpellResolved ||
             event instanceof GameEventSpellAbilityCast ||
@@ -53,7 +67,6 @@ public class ArgentumStateLogger {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(game, eventType);
             String jsonSnapshot = gson.toJson(snapshot);
             eventQueue.add(jsonSnapshot);
-
             currentMatchId = game.getMatch().getMatchId();
             if (eventQueue.size() >= BATCH_SIZE) {
                 flushQueue();
@@ -68,7 +81,7 @@ public class ArgentumStateLogger {
         queueState(game, "GAME_OVER");
         flushQueue();
     }
-
+    
     public static void flushQueue() {
         if (eventQueue.isEmpty() || currentMatchId == null) {
             return;
@@ -84,6 +97,14 @@ public class ArgentumStateLogger {
         String jsonBatch = "[" + String.join(",", statesToSend) + "]";
         sendBatchToLogServer(currentMatchId, jsonBatch);
     }
+    
+    // --- FIX: Add the missing helper method ---
+    private static String getLogEndpointUrl() {
+        String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
+        // Fallback to localhost for local testing if the ENV var isn't set
+        return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-state";
+    }
+    // --- END FIX ---
 
     private static void sendBatchToLogServer(String matchId, String jsonBatch) {
         try {
@@ -112,6 +133,8 @@ public class ArgentumStateLogger {
         }
     }
 
+    // The rest of your file (createSpectatorUpdateFromGame, etc.) is correct and does not need to change.
+    // I have included them here for completeness.
     private static SpectatorStateUpdate createSpectatorUpdateFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
         ClientGameState gameState = new ClientGameState();
@@ -120,7 +143,6 @@ public class ArgentumStateLogger {
         Player player2 = players.get(1);
         Combat currentCombat = game.getPhaseHandler().getCombat();
         MagicStack stack = game.getStack();
-
         boolean isPreGame = (game.getPhaseHandler().getPhase() == null);
         String currentPhaseName = isPreGame ? "MULLIGAN" : game.getPhaseHandler().getPhase().name();
         String currentStepName = isPreGame ? "OPENING_HAND" : currentStep;
@@ -137,12 +159,12 @@ public class ArgentumStateLogger {
         snapshot.activePlayerId = activePlayerId;
         snapshot.priorityPlayerId = priorityPlayerId;
         snapshot.combat = createCombatState(currentCombat);
-
+        
         gameState.cards = new HashMap<>();
         for (Card card : game.getCardsInGame()) {
             gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
         }
-
+        
         gameState.zones = new ArrayList<>();
         for (Player p : players) {
             for (ZoneType zt : Player.ALL_ZONES) {
@@ -153,19 +175,19 @@ public class ArgentumStateLogger {
             }
         }
         gameState.zones.add(createClientZone(game.getStackZone()));
-
+        
         gameState.players = new ArrayList<>();
         for(Player p : players) {
             gameState.players.add(createClientPlayer(p));
         }
-
+        
         gameState.currentPhase = currentPhaseName;
         gameState.currentStep = currentStepName;
         gameState.activePlayerId = activePlayerId;
         gameState.priorityPlayerId = priorityPlayerId;
         gameState.turnNumber = currentTurnNumber;
         gameState.isGameOver = game.isGameOver();
-
+        
         String winnerId = null;
         if (gameState.isGameOver) {
             for (Player p : players) {
@@ -176,6 +198,7 @@ public class ArgentumStateLogger {
             }
         }
         gameState.winnerId = winnerId;
+        
         gameState.gameLog = Collections.singletonList(isPreGame ? "> Drawing opening hands..." : "> Turn " + gameState.turnNumber + ": " + currentStep.replace("_", " "));
         gameState.combat = createCombatState(currentCombat);
         snapshot.gameState = gameState;
@@ -184,11 +207,10 @@ public class ArgentumStateLogger {
 
     private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
         ClientCard cc = new ClientCard();
-        
         cc.entityId = String.valueOf(card.getId());
         cc.name = card.getName();
         cc.imageUri = null;
-        cc.cardTypes = card.getType().getCoreTypes().stream().map(Object::toString).collect(Collectors.toList()); // Corrected this line
+        cc.cardTypes = card.getType().getCoreTypes().stream().map(Object::toString).collect(Collectors.toList());
         cc.isTapped = card.isTapped();
         cc.isAttacking = combat != null && combat.isAttacking(card);
         cc.isBlocking = combat != null && combat.isBlocking(card);
@@ -204,7 +226,7 @@ public class ArgentumStateLogger {
                     SpellAbility sa = si.getSpellAbility();
                     if (sa.usesTargeting()) {
                         TargetChoices targets = sa.getTargets();
-                        if (targets != null) { // TargetChoices itself is the list
+                        if (targets != null) {
                             for (GameObject target : targets) {
                                 TargetInfo ti = new TargetInfo();
                                 if (target instanceof Card) {
@@ -224,7 +246,6 @@ public class ArgentumStateLogger {
                 }
             }
         }
-        
         return cc;
     }
 
