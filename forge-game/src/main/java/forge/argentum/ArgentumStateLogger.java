@@ -8,6 +8,7 @@ import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
 import forge.card.CardTypeView;
 import forge.game.Game;
+import forge.game.event.*; // Import all game events
 import forge.game.GameSnapshot;
 import forge.game.GameObject;
 import forge.game.Match;
