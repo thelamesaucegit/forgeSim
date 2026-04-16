@@ -19,6 +19,7 @@
  */
 package forge.game;
 
+import forge.argentum.ArgentumStateLogger;
 import com.google.common.collect.ArrayListMultimap;
 import com.google.common.collect.HashBasedTable;
 import com.google.common.collect.Lists;
