@@ -386,6 +386,7 @@ private boolean isCopy = false;
         sbaCheckedCommandList = new ArrayList<>();
 
         view.updatePlayers(this);
+        subscribeToEvents(new ArgentumStateLogger());
 
         subscribeToEvents(gameLog.getEventVisitor());
     }
@@ -590,6 +591,8 @@ private boolean isCopy = false;
         if (maingame == null) {
             fireEvent(new GameEventGameOutcome(result, match.getOutcomes()));
         }
+                ArgentumStateLogger.logOnGameOver(this);
+
     }
 
     public Zone getZoneOf(final Card card) {

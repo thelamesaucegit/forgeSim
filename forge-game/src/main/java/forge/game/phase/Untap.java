@@ -77,7 +77,6 @@ public class Untap extends Phase {
         game.getAction().checkStaticAbilities();
 
         doUntap();
-            ArgentumStateLogger.logState(game, "UNTAP_STEP");
 
     }
 

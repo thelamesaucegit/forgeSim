@@ -40,7 +40,6 @@ public class UnattachEffect extends SpellAbilityEffect {
                 gameCard.unattachFromEntity(gameCard.getEntityAttachedTo());
             }
         }
-            ArgentumStateLogger.logState(game, "ACTION_UNATTACH");
 
     }
 }

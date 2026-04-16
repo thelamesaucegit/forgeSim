@@ -528,7 +528,6 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
                 p.updateFlashbackForView();
             }
         }
-            ArgentumStateLogger.logState(game, "ACTION_CAST_SPELL");
 
     }
 
@@ -702,7 +701,6 @@ public class MagicStack /* extends MyObservable */ implements Iterable<SpellAbil
         game.getPhaseHandler().onStackResolved();
 
         curResolvingCard = null;
-            ArgentumStateLogger.logState(game, "ACTION_RESOLVE_SPELL");
 
     }
 

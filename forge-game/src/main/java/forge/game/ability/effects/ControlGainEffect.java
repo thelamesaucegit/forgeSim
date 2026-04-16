@@ -243,7 +243,7 @@ public class ControlGainEffect extends SpellAbilityEffect {
             runParams.put(AbilityKey.Map, map);
             game.getTriggerHandler().runTrigger(TriggerType.UntapAll, runParams, false);
         }
-            ArgentumStateLogger.logState(game, "ACTION_CHANGE_CONTROL");
+           // ArgentumStateLogger.logState(game, "ACTION_CHANGE_CONTROL");
 
     }
 

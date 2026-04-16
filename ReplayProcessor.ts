@@ -1,3 +1,5 @@
+//ReplayProcessor.ts
+
 import { GameState, PlayerState, Card } from './types.js';
 
 export function processReplay(rawGameStates: GameState[]): GameState[] {

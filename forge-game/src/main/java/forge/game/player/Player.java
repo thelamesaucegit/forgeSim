@@ -1267,7 +1267,7 @@ public class Player extends GameEntity implements Comparable<Player> {
         if (!drawn.isEmpty()) {
         // The phase handler will tell us if we are in the draw step or not.
         String stepName = game.getPhaseHandler().is(PhaseType.DRAW) ? "DRAW_STEP" : "EFFECT_DRAW";
-        ArgentumStateLogger.logState(game, stepName);
+      //  ArgentumStateLogger.logState(game, stepName);
     }
         return drawn;
     }
@@ -1670,7 +1670,7 @@ public class Player extends GameEntity implements Comparable<Player> {
 
         // play a sound
         game.fireEvent(new GameEventLandPlayed(PlayerView.get(this), CardView.get(c)));
-        ArgentumStateLogger.logState(game, "ACTION_PLAY_LAND");
+       // ArgentumStateLogger.logState(game, "ACTION_PLAY_LAND");
         return c;
     }
 

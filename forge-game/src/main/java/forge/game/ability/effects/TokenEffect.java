@@ -137,6 +137,5 @@ public class TokenEffect extends TokenEffectBase {
             game.updateCombatForView();
             game.fireEvent(new GameEventCombatChanged());
         }
-            ArgentumStateLogger.logState(game, "ACTION_CREATE_TOKEN");
     }
 }
