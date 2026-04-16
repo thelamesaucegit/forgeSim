@@ -1670,7 +1670,7 @@ public class Player extends GameEntity implements Comparable<Player> {
 
         // play a sound
         game.fireEvent(new GameEventLandPlayed(PlayerView.get(this), CardView.get(c)));
-        ArgentumStateLogger.logState(game, "ACTION_PLAY_LAND");
+       // ArgentumStateLogger.logState(game, "ACTION_PLAY_LAND");
         return c;
     }
 
