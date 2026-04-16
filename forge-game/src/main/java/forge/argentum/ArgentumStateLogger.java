@@ -45,56 +45,45 @@ public class ArgentumStateLogger {
     private static final ConcurrentLinkedQueue<String> eventQueue = new ConcurrentLinkedQueue<>();
     private static String currentMatchId;
 
-    private static String getLogEndpointUrl() {
-        String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
-        return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-state";
-    }
-    private static final java.util.concurrent.atomic.AtomicInteger callCount = 
-    new java.util.concurrent.atomic.AtomicInteger(0);
-
-    public static void logState(Game game, String currentStep) {
-        if (game == null || game.getPhaseHandler() == null || game.isGameOver() || game.getAge() == null || game.getAge().ordinal() <= GameStage.Mulligan.ordinal()) {
-            return;
-        }
-
-        if (game.isCopiedGame()) {
-            return;
-        }
-
-        int n = callCount.incrementAndGet();
-        if (n % 25 == 0) {
-            System.err.println("[ArgDiag] logState call #" + n 
-                + " | step=" + currentStep 
-                + " | stackSize=" + game.getStack().size());
-            StackTraceElement[] trace = Thread.currentThread().getStackTrace();
-            for (int i = 2; i < Math.min(10, trace.length); i++) {
-                System.err.println("    " + trace[i]);
-            }
-        }
-        try {
-            if (game.isLogging()) return;
-            game.setLogging(true);
-
-            GameSnapshot snapshotter = new GameSnapshot(game);
-            Game gameCopy = snapshotter.makeCopy();
+    @Subscribe
+    public void onGameEvent(GameEvent event) {
+        Game game = event.getGame();
+        
+        // Only log events that are likely to cause a visual change.
+        // This is the key to reducing log spam.
+        if (event instanceof GameEventTurnPhase || 
+            event instanceof GameEventSpellResolved ||
+            event instanceof GameEventSpellAbilityCast ||
+            event instanceof GameEventPlayerDamaged ||
+            event instanceof GameEventBlockersDeclared) {
             
-            SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(gameCopy, currentStep);
+            queueState(game, event.getClass().getSimpleName());
+        }
+    }
+
+    private static void queueState(Game game, String eventType) {
+        if (game == null || game.isGameOver() || game.isCopiedGame() || game.getPhaseHandler() == null) {
+            return;
+        }
+        
+        try {
+            SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(game, eventType);
             String jsonSnapshot = gson.toJson(snapshot);
             eventQueue.add(jsonSnapshot);
-            
-            final Match match = game.getMatch();
-            currentMatchId = match.getMatchId();
+
+            currentMatchId = game.getMatch().getMatchId();
             if (eventQueue.size() >= BATCH_SIZE) {
                 flushQueue();
             }
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger Error: Failed to log state for step " + currentStep);
+            System.err.println("ArgentumStateLogger Error: Failed to queue state for event " + eventType);
             e.printStackTrace();
-        } finally {
-            if (game != null) {
-                game.setLogging(false);
-            }
         }
+    }
+
+    public static void logOnGameOver(Game game) {
+        queueState(game, "GAME_OVER");
+        flushQueue();
     }
     
 
