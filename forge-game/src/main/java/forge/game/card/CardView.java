@@ -1,3 +1,5 @@
+//forge-game/src/main/java/forge/game/card/CardView.java
+
 package forge.game.card;
 
 import com.google.common.collect.Iterables;
