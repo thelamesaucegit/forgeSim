@@ -34,69 +34,71 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
-// --- FIX: Implement the IGameEventVisitor interface ---
-public class ArgentumStateLogger implements IGameEventVisitor<Void> {
+// --- FIX 1: Extend the Base visitor to implement all methods by default ---
+public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
+
+    // --- FIX 2: Make methods non-static to manage state per instance ---
+    private final ConcurrentLinkedQueue<String> eventQueue = new ConcurrentLinkedQueue<>();
+    private String currentMatchId;
 
     private static final Gson gson = new GsonBuilder().setLenient().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
     private static final int BATCH_SIZE = 20;
-    private static final ConcurrentLinkedQueue<String> eventQueue = new ConcurrentLinkedQueue<>();
-    private static String currentMatchId;
 
-    // --- FIX: The subscribe method now correctly calls the visit method ---
     @Subscribe
     public void onGameEvent(GameEvent event) {
-        // The event dispatches to the correct visit method below.
         event.visit(this);
     }
     
-    // --- FIX: Implement visit methods for specific, visually significant events ---
+    // --- FIX 3: Correctly implement the visit methods with proper data access ---
     @Override
     public Void visit(GameEventTurnPhase event) {
-        queueState(event.getGame(), "TURN_PHASE");
+        // GameEventTurnPhase has a public 'game' field.
+        queueState(event.game, "TURN_PHASE");
         return null;
     }
 
     @Override
     public Void visit(GameEventSpellResolved event) {
+        // The SpellAbilityView has a public 'game' field.
         queueState(event.spell().getGame(), "SPELL_RESOLVED");
         return null;
     }
 
     @Override
     public Void visit(GameEventSpellAbilityCast event) {
-        queueState(event.getSa().getGame(), "SPELL_CAST");
+        // The SpellAbility object has a getGame() method.
+        queueState(event.sa.getGame(), "SPELL_CAST");
         return null;
     }
 
     @Override
     public Void visit(GameEventPlayerDamaged event) {
+        // The Player object has a getGame() method.
         queueState(event.player.getGame(), "PLAYER_DAMAGED");
         return null;
     }
 
     @Override
     public Void visit(GameEventBlockersDeclared event) {
-        queueState(event.getAttackingPlayer().getGame(), "BLOCKERS_DECLARED");
+        // The Player object has a getGame() method.
+        queueState(event.player.getGame(), "BLOCKERS_DECLARED");
         return null;
     }
 
-    // --- All other visit methods are not implemented, so they do nothing ---
-    // (This is implicitly handled by not overriding them)
-
-    private static void queueState(Game game, String eventType) {
+    private void queueState(Game game, String eventType) {
         if (game == null || game.isGameOver() || game.isCopiedGame() || game.getPhaseHandler() == null) {
             return;
         }
         
         try {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(game, eventType);
-            if (snapshot == null) return; // Don't queue null snapshots
+            if (snapshot == null) return;
             String jsonSnapshot = gson.toJson(snapshot);
-            eventQueue.add(jsonSnapshot);
-            currentMatchId = game.getMatch().getMatchId();
-            if (eventQueue.size() >= BATCH_SIZE) {
-                flushQueue();
+            this.eventQueue.add(jsonSnapshot); // Use instance queue
+            this.currentMatchId = game.getMatch().getMatchId(); // Use instance matchId
+            if (this.eventQueue.size() >= BATCH_SIZE) {
+                this.flushQueue();
             }
         } catch (Exception e) {
             System.err.println("ArgentumStateLogger Error: Failed to queue state for event " + eventType);
@@ -104,10 +106,24 @@ public class ArgentumStateLogger implements IGameEventVisitor<Void> {
         }
     }
 
-    public static void logOnGameOver(Game game) {
+    // --- FIX 4: Make flushQueue and logOnGameOver instance methods ---
+    public void logOnGameOver(Game game) {
         queueState(game, "GAME_OVER");
         flushQueue();
     }
     
-    // ... The rest of the file (flushQueue, sendBatchToLogServer, and all create... methods) remains unchanged ...
-}
+    public void flushQueue() {
+        if (this.eventQueue.isEmpty() || this.currentMatchId == null) {
+            return;
+        }
+        List<String> statesToSend = new ArrayList<>();
+        String state;
+        while ((state = this.eventQueue.poll()) != null) {
+            statesToSend.add(state);
+        }
+        if (statesToSend.isEmpty()) {
+            return;
+        }
+        String jsonBatch = "[" + String.join(",", statesToSend) + "]";
+        sendBatchToLogServer(this.currentMatchId, jsonBatch);
+    }
