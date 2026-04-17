@@ -56,7 +56,7 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
              // The visit method will call the appropriate queueState
             event.visit(this);
         }
-    
+    }
     // --- All visit methods now use this.game ---
     @Override
     public Void visit(GameEventTurnPhase event) {
