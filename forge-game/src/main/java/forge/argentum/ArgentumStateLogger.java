@@ -52,8 +52,10 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
     @Subscribe
     public void onGameEvent(GameEvent event) {
         // No need to get the game from the event anymore, we already have it.
-        event.visit(this);
-    }
+    if (event instanceof GameEventTurnPhase) {
+             // The visit method will call the appropriate queueState
+            event.visit(this);
+        }
     
     // --- All visit methods now use this.game ---
     @Override
