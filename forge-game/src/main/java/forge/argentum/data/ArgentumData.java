@@ -12,7 +12,10 @@ public class ArgentumData {
         public String entityId;
         public String type; // Will be "Card", "Player", etc.
     }
-
+   public static class ZoneId {
+        public String zoneType;
+        public String ownerId;
+    }
     public static class CombatState {
         public List<CombatGroup> groups = new ArrayList<>();
         public List<String> attackers = new ArrayList<>();
@@ -68,7 +71,7 @@ public class ArgentumData {
     }
 
     public static class ClientZone {
-        public String zoneId;
+      public ZoneId zoneId; 
         public String type;
         public String ownerId;
         public List<String> cardIds;
