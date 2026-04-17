@@ -33,7 +33,6 @@ import forge.card.CardRarity;
 import forge.card.CardStateName;
 import forge.game.ability.AbilityKey;
 import forge.game.card.*;
-import forge.argentum.ArgentumStateLogger; // --- ADD THIS IMPORT ---
 import forge.game.combat.Combat;
 import forge.game.event.Event;
 import forge.game.event.GameEventDayTimeChanged;
