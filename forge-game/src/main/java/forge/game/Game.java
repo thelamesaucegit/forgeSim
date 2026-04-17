@@ -62,7 +62,7 @@ import java.util.function.Predicate;
  * Represents the state of a <i>single game</i>, a new instance is created for each game.
  */
 public class Game {
-        private final ArgentumStateLogger argentumLogger = new ArgentumStateLogger(); // --- ADD THIS INSTANCE ---
+    private final ArgentumStateLogger argentumLogger = new ArgentumStateLogger(this);
 
 private boolean isCopy = false;
     private static int maxId = 0;
@@ -594,7 +594,7 @@ private boolean isCopy = false;
         if (maingame == null) {
             fireEvent(new GameEventGameOutcome(result, match.getOutcomes()));
         }
-        argentumLogger.logOnGameOver(this); // --- CALL METHOD ON THE INSTANCE ---
+        argentumLogger.logOnGameOver();
 
     }
 
