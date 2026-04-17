@@ -33,6 +33,7 @@ import forge.card.CardRarity;
 import forge.card.CardStateName;
 import forge.game.ability.AbilityKey;
 import forge.game.card.*;
+import forge.argentum.ArgentumStateLogger; // --- ADD THIS IMPORT ---
 import forge.game.combat.Combat;
 import forge.game.event.Event;
 import forge.game.event.GameEventDayTimeChanged;
@@ -62,6 +63,8 @@ import java.util.function.Predicate;
  * Represents the state of a <i>single game</i>, a new instance is created for each game.
  */
 public class Game {
+        private final ArgentumStateLogger argentumLogger = new ArgentumStateLogger(); // --- ADD THIS INSTANCE ---
+
 private boolean isCopy = false;
     private static int maxId = 0;
     private static int nextId() { return ++maxId; }
@@ -387,7 +390,7 @@ private boolean isCopy = false;
         sbaCheckedCommandList = new ArrayList<>();
 
         view.updatePlayers(this);
-        subscribeToEvents(new ArgentumStateLogger());
+        subscribeToEvents(argentumLogger); // --- SUBSCRIBE THE INSTANCE ---
 
         subscribeToEvents(gameLog.getEventVisitor());
     }
@@ -592,7 +595,7 @@ private boolean isCopy = false;
         if (maingame == null) {
             fireEvent(new GameEventGameOutcome(result, match.getOutcomes()));
         }
-                ArgentumStateLogger.logOnGameOver(this);
+        argentumLogger.logOnGameOver(this); // --- CALL METHOD ON THE INSTANCE ---
 
     }
 
