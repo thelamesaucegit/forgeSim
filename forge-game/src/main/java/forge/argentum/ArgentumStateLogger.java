@@ -42,7 +42,7 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
     private static final Gson gson = new GsonBuilder().setLenient().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
-    private static final int BATCH_SIZE = 20;
+    private static final int BATCH_SIZE = 100;
 
     // --- Constructor to receive the Game instance ---
     public ArgentumStateLogger(Game game) {
@@ -113,7 +113,7 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         flushQueue();
     }
     
-    public void flushQueue() {
+    private void flushQueue(boolean synchronous) {
         if (this.eventQueue.isEmpty() || this.currentMatchId == null) {
             return;
         }
@@ -126,7 +126,7 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
             return;
         }
         String jsonBatch = "[" + String.join(",", statesToSend) + "]";
-        sendBatchToLogServer(this.currentMatchId, jsonBatch);
+        sendBatchToLogServer(this.currentMatchId, jsonBatch, synchronous);
     }
     
     private static String getLogEndpointUrl() {
@@ -141,11 +141,19 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
                     .uri(URI.create(endpointUrl))
                     .header("Content-Type", "application/json")
                     .header("X-Match-ID", matchId) 
-                    .timeout(Duration.ofSeconds(30))
+                    .timeout(Duration.ofSeconds(60))
                     .POST(BodyPublishers.ofString(jsonBatch))
                     .build();
     
-            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+            if (synchronous) {
+                // For game over, block until the request is sent
+                HttpResponse<String> response = httpClient.send(request, BodyHandlers.ofString());
+                if (response.statusCode() != 200) {
+                    System.err.println("ArgentumLogger (SYNC): Received non-200 response: " + response.body());
+                }
+            } else {
+                // For mid-game, send asynchronously
+                httpClient.sendAsync(request, BodyHandlers.ofString())
                 .thenAccept(response -> {
                     if (response.statusCode() != 200) {
                          System.err.println("ArgentumLogger: Received non-200 response for batch: " + response.body());
