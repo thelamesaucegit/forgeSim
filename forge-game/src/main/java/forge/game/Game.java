@@ -63,7 +63,9 @@ import java.util.function.Predicate;
  */
 public class Game {
     private final ArgentumStateLogger argentumLogger = new ArgentumStateLogger(this);
-
+public ArgentumStateLogger getArgentumLogger() {
+    return this.argentumLogger;
+}
 private boolean isCopy = false;
     private static int maxId = 0;
     private static int nextId() { return ++maxId; }
