@@ -36,6 +36,7 @@ import java.util.stream.Collectors;
 
 public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
+    private final Game game; // --- Holds a reference to the game instance
     private final ConcurrentLinkedQueue<String> eventQueue = new ConcurrentLinkedQueue<>();
     private String currentMatchId;
 
@@ -43,64 +44,59 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
     private static final HttpClient httpClient = HttpClient.newHttpClient();
     private static final int BATCH_SIZE = 20;
 
+    // --- Constructor to receive the Game instance ---
+    public ArgentumStateLogger(Game game) {
+        this.game = game;
+    }
+
     @Subscribe
     public void onGameEvent(GameEvent event) {
+        // No need to get the game from the event anymore, we already have it.
         event.visit(this);
     }
     
-    // The visit methods are now corrected based on the actual event class structures.
+    // --- All visit methods now use this.game ---
     @Override
     public Void visit(GameEventTurnPhase event) {
-        if (event.playerTurn() != null && event.playerTurn().getGame() != null) {
-            queueState(event.playerTurn().getGame(), "TURN_PHASE");
-        }
+        queueState("TURN_PHASE");
         return null;
     }
 
     @Override
     public Void visit(GameEventSpellResolved event) {
-        if (event.spell() != null && event.spell().getHostCard() != null) {
-            queueState(event.spell().getHostCard().getGame(), "SPELL_RESOLVED");
-        }
+        queueState("SPELL_RESOLVED");
         return null;
     }
 
     @Override
     public Void visit(GameEventSpellAbilityCast event) {
-        // Accessing the field via the record's accessor method: sa()
-        if (event.sa() != null && event.sa().getHostCard() != null) {
-            queueState(event.sa().getHostCard().getGame(), "SPELL_CAST");
-        }
+        queueState("SPELL_CAST");
         return null;
     }
 
     @Override
     public Void visit(GameEventPlayerDamaged event) {
-        // Accessing the field via the record's accessor method: target()
-        if (event.target() != null && event.target().getGame() != null) {
-            queueState(event.target().getGame(), "PLAYER_DAMAGED");
-        }
+        queueState("PLAYER_DAMAGED");
         return null;
     }
 
     @Override
     public Void visit(GameEventBlockersDeclared event) {
-        if (event.player != null && event.player.getGame() != null) {
-            queueState(event.player.getGame(), "BLOCKERS_DECLARED");
-        }
+        queueState("BLOCKERS_DECLARED");
         return null;
     }
 
-    private void queueState(Game game, String eventType) {
-        if (game == null || game.isGameOver() || game.isCopiedGame() || game.getPhaseHandler() == null) {
+    private void queueState(String eventType) {
+        // Method now uses the 'this.game' field
+        if (this.game == null || this.game.isGameOver() || this.game.isCopiedGame() || this.game.getPhaseHandler() == null) {
             return;
         }
         try {
-            SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(game, eventType);
+            SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(this.game, eventType);
             if (snapshot == null) return;
             String jsonSnapshot = gson.toJson(snapshot);
             this.eventQueue.add(jsonSnapshot);
-            this.currentMatchId = game.getMatch().getMatchId();
+            this.currentMatchId = this.game.getMatch().getMatchId();
             if (this.eventQueue.size() >= BATCH_SIZE) {
                 this.flushQueue();
             }
@@ -110,8 +106,8 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         }
     }
 
-    public void logOnGameOver(Game game) {
-        queueState(game, "GAME_OVER");
+    public void logOnGameOver() {
+        queueState("GAME_OVER");
         flushQueue();
     }
     
