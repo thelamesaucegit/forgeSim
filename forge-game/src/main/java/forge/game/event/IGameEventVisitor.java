@@ -1,3 +1,5 @@
+//forge-game/src/main/java/forge/game/event/IGameEventVisitor.java
+
 package forge.game.event;
 
 public interface IGameEventVisitor<T> {

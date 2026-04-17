@@ -4,8 +4,10 @@ package forge.game.event;
 
 import forge.game.spellability.SpellAbility;
 import forge.game.spellability.SpellAbilityView;
+import forge.game.Game; // Import the Game class
 
-public record GameEventSpellResolved(SpellAbilityView spell, boolean hasFizzled, String stackDescription) implements GameEvent {
+
+public record GameEventSpellResolved(SpellAbilityView spell, boolean hasFizzled, String stackDescription) implements GameEvent, IHasGame {
 
     public GameEventSpellResolved(SpellAbility spell, boolean hasFizzled) {
         this(SpellAbilityView.get(spell), hasFizzled, spell.getStackDescription());
@@ -15,10 +17,13 @@ public record GameEventSpellResolved(SpellAbilityView spell, boolean hasFizzled,
     public <T> T visit(IGameEventVisitor<T> visitor) {
         return visitor.visit(this);
     }
+    
+    // --- FIX: Add the getGame() method ---
+    @Override
+    public Game getGame() {
+        return this.spell.getGame();
+    }
 
-    /* (non-Javadoc)
-     * @see java.lang.Object#toString()
-     */
     @Override
     public String toString() {
         return "Stack resolved " + spell + (hasFizzled ? " (fizzled)" : "");
