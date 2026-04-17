@@ -268,16 +268,27 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         return cc;
     }
 
-    private static ClientZone createClientZone(Zone zone) {
+private static ClientZone createClientZone(Zone zone) {
         ClientZone cz = new ClientZone();
-        cz.type = zone.getZoneType().name();
+        
+        // --- THIS IS THE FIX ---
+        // Create a ZoneId object that matches the TypeScript interface
+        ZoneId zoneIdObject = new ZoneId();
+        zoneIdObject.zoneType = zone.getZoneType().name();
         String ownerId = zone.getPlayer() != null ? String.valueOf(zone.getPlayer().getId()) : "game";
-        cz.ownerId = ownerId;
-        cz.zoneId = cz.type + "_" + ownerId;
+        zoneIdObject.ownerId = ownerId;
+        
+        cz.zoneId = zoneIdObject; // Assign the object, not a string
+        // --- END FIX ---
+        
         cz.cardIds = new ArrayList<>();
         for (Card card : zone.getCards()) {
             cz.cardIds.add(String.valueOf(card.getId()));
         }
+        // The 'size' and 'isVisible' fields will be added to the data class
+        cz.size = cz.cardIds.size();
+        cz.isVisible = true; // Assuming all zones sent are visible for replay
+        
         return cz;
     }
 
