@@ -75,6 +75,8 @@ public class ArgentumData {
         public String type;
         public String ownerId;
         public List<String> cardIds;
+          public int size;
+        public boolean isVisible;
     }
 
     public static class ClientPlayer {
