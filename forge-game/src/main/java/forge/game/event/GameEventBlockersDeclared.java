@@ -1,3 +1,5 @@
+//forge-game/src/main/java/forge/game/event/GameEventBlockersDeclared.java
+
 package forge.game.event;
 
 import java.util.ArrayList;
