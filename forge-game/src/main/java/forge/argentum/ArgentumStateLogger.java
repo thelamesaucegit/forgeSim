@@ -2,16 +2,13 @@
 
 package forge.argentum;
 
-// --- FIX: Add all necessary imports ---
 import com.google.common.eventbus.Subscribe;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
-import forge.card.CardTypeView;
 import forge.game.Game;
 import forge.game.GameObject;
 import forge.game.Match;
-import forge.game.ability.AbilityKey; // <-- FIX: Import AbilityKey
 import forge.game.combat.Combat;
 import forge.game.card.Card;
 import forge.game.event.*;
@@ -36,8 +33,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
-// --- END FIX ---
-
 
 public class ArgentumStateLogger {
 
@@ -49,16 +44,16 @@ public class ArgentumStateLogger {
 
     @Subscribe
     public void onGameEvent(GameEvent event) {
-        // --- FIX: Get the Game object reliably from the event parameters ---
-        if (!event.getParams().containsKey("Game")) {
-            return; // Not an event that contains the game state
+        // --- THIS IS THE CORRECT AND FINAL FIX ---
+        // GameEvent extends java.util.EventObject, which has getSource().
+        // For all game events, the source is the Game object itself.
+        Object source = ((java.util.EventObject) event).getSource();
+        if (!(source instanceof Game)) {
+            return; // Safety check
         }
-        Object gameObj = event.getParams().get("Game");
-        if (!(gameObj instanceof Game)) {
-            return;
-        }
-        Game game = (Game) gameObj;
+        Game game = (Game) source;
         // --- END FIX ---
+        
         if (event instanceof GameEventTurnPhase || 
             event instanceof GameEventSpellResolved ||
             event instanceof GameEventSpellAbilityCast ||
@@ -109,13 +104,10 @@ public class ArgentumStateLogger {
         sendBatchToLogServer(currentMatchId, jsonBatch);
     }
     
-    // --- FIX: Add the missing helper method ---
     private static String getLogEndpointUrl() {
         String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
-        // Fallback to localhost for local testing if the ENV var isn't set
         return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-state";
     }
-    // --- END FIX ---
 
     private static void sendBatchToLogServer(String matchId, String jsonBatch) {
         try {
@@ -144,12 +136,11 @@ public class ArgentumStateLogger {
         }
     }
 
-    // The rest of your file (createSpectatorUpdateFromGame, etc.) is correct and does not need to change.
-    // I have included them here for completeness.
     private static SpectatorStateUpdate createSpectatorUpdateFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
         ClientGameState gameState = new ClientGameState();
         List<Player> players = game.getPlayers();
+        if (players.size() < 2) return null; // Cannot create a valid snapshot
         Player player1 = players.get(0);
         Player player2 = players.get(1);
         Combat currentCombat = game.getPhaseHandler().getCombat();
