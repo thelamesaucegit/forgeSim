@@ -56,33 +56,25 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
     @Override
     public Void visit(GameEventSpellResolved event) {
-        if (event.spell() != null) {
-            queueState(event.spell().getGame(), "SPELL_RESOLVED");
-        }
+        queueState(event.spell().getGame(), "SPELL_RESOLVED");
         return null;
     }
 
     @Override
     public Void visit(GameEventSpellAbilityCast event) {
-        if (event.sa != null) {
-            queueState(event.sa.getGame(), "SPELL_CAST");
-        }
+        queueState(event.sa.getGame(), "SPELL_CAST");
         return null;
     }
 
     @Override
     public Void visit(GameEventPlayerDamaged event) {
-        if (event.player != null) {
-            queueState(event.player.getGame(), "PLAYER_DAMAGED");
-        }
+        queueState(event.player.getGame(), "PLAYER_DAMAGED");
         return null;
     }
 
     @Override
     public Void visit(GameEventBlockersDeclared event) {
-        if (event.player != null) {
-            queueState(event.player.getGame(), "BLOCKERS_DECLARED");
-        }
+        queueState(event.player.getGame(), "BLOCKERS_DECLARED");
         return null;
     }
 
