@@ -48,10 +48,10 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         event.visit(this);
     }
     
+    // The visit methods are now corrected based on the actual event class structures.
     @Override
     public Void visit(GameEventTurnPhase event) {
-        // The PlayerView object has a getGame() method.
-        if (event.playerTurn() != null) {
+        if (event.playerTurn() != null && event.playerTurn().getGame() != null) {
             queueState(event.playerTurn().getGame(), "TURN_PHASE");
         }
         return null;
@@ -59,7 +59,6 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
     @Override
     public Void visit(GameEventSpellResolved event) {
-        // The SpellAbilityView gives us the card, which gives us the game.
         if (event.spell() != null && event.spell().getHostCard() != null) {
             queueState(event.spell().getHostCard().getGame(), "SPELL_RESOLVED");
         }
@@ -68,7 +67,7 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
     @Override
     public Void visit(GameEventSpellAbilityCast event) {
-        // The SpellAbilityView gives us the card, which gives us the game.
+        // Accessing the field via the record's accessor method: sa()
         if (event.sa() != null && event.sa().getHostCard() != null) {
             queueState(event.sa().getHostCard().getGame(), "SPELL_CAST");
         }
@@ -77,8 +76,8 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
     @Override
     public Void visit(GameEventPlayerDamaged event) {
-        // The PlayerView object has a getGame() method.
-        if (event.target() != null) {
+        // Accessing the field via the record's accessor method: target()
+        if (event.target() != null && event.target().getGame() != null) {
             queueState(event.target().getGame(), "PLAYER_DAMAGED");
         }
         return null;
@@ -86,8 +85,7 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
     @Override
     public Void visit(GameEventBlockersDeclared event) {
-        // This event has a 'player' field which is a PlayerView.
-        if (event.player != null) {
+        if (event.player != null && event.player.getGame() != null) {
             queueState(event.player.getGame(), "BLOCKERS_DECLARED");
         }
         return null;
@@ -97,7 +95,6 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         if (game == null || game.isGameOver() || game.isCopiedGame() || game.getPhaseHandler() == null) {
             return;
         }
-        
         try {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(game, eventType);
             if (snapshot == null) return;
@@ -243,7 +240,6 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         cc.toughness = card.isCreature() ? card.getNetToughness() : null;
         cc.damage = card.getDamage();
         cc.attachedTo = card.isAttachedToEntity() ? String.valueOf(card.getAttachedTo().getId()) : null;
-        
         cc.targets = new ArrayList<>();
         if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
             for (SpellAbilityStackInstance si : stack) {
