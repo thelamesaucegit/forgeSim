@@ -254,12 +254,11 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 private static ClientZone createClientZone(Zone zone) {
         ClientZone cz = new ClientZone();
         
-        // --- THIS IS THE FIX ---
-        // Create a ZoneId object that matches the TypeScript interface
-        ZoneId zoneIdObject = new ZoneId();
+ZoneId zoneIdObject = new ZoneId();
         zoneIdObject.zoneType = zone.getZoneType().name();
-        String ownerId = zone.getPlayer() != null ? String.valueOf(zone.getPlayer().getId()) : "game";
-        zoneIdObject.ownerId = ownerId;
+        zoneIdObject.ownerId = zone.getPlayer() != null ? String.valueOf(zone.getPlayer().getId()) : "game";
+        
+        cz.zoneId = zoneIdObject; // Assign the object
         
         cz.zoneId = zoneIdObject; // Assign the object, not a string
         // --- END FIX ---
