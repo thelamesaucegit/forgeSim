@@ -19,12 +19,12 @@ import forge.game.spellability.TargetChoices;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpRequest.BodyPublishers;
+import java.net.http.HttpResponse.BodyHandlers; // Required for synchronous call
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -36,7 +36,7 @@ import java.util.stream.Collectors;
 
 public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
-    private final Game game; // --- Holds a reference to the game instance
+    private final Game game;
     private final ConcurrentLinkedQueue<String> eventQueue = new ConcurrentLinkedQueue<>();
     private String currentMatchId;
 
@@ -44,52 +44,25 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
     private static final HttpClient httpClient = HttpClient.newHttpClient();
     private static final int BATCH_SIZE = 100;
 
-    // --- Constructor to receive the Game instance ---
     public ArgentumStateLogger(Game game) {
         this.game = game;
     }
 
     @Subscribe
     public void onGameEvent(GameEvent event) {
-        // No need to get the game from the event anymore, we already have it.
-    if (event instanceof GameEventTurnPhase) {
-             // The visit method will call the appropriate queueState
+        // Only log when the phase changes to reduce database load
+        if (event instanceof GameEventTurnPhase) {
             event.visit(this);
         }
     }
-    // --- All visit methods now use this.game ---
+
     @Override
     public Void visit(GameEventTurnPhase event) {
         queueState("TURN_PHASE");
         return null;
     }
 
-    @Override
-    public Void visit(GameEventSpellResolved event) {
-        queueState("SPELL_RESOLVED");
-        return null;
-    }
-
-    @Override
-    public Void visit(GameEventSpellAbilityCast event) {
-        queueState("SPELL_CAST");
-        return null;
-    }
-
-    @Override
-    public Void visit(GameEventPlayerDamaged event) {
-        queueState("PLAYER_DAMAGED");
-        return null;
-    }
-
-    @Override
-    public Void visit(GameEventBlockersDeclared event) {
-        queueState("BLOCKERS_DECLARED");
-        return null;
-    }
-
     private void queueState(String eventType) {
-        // Method now uses the 'this.game' field
         if (this.game == null || this.game.isGameOver() || this.game.isCopiedGame() || this.game.getPhaseHandler() == null) {
             return;
         }
@@ -100,7 +73,8 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
             this.eventQueue.add(jsonSnapshot);
             this.currentMatchId = this.game.getMatch().getMatchId();
             if (this.eventQueue.size() >= BATCH_SIZE) {
-                this.flushQueue();
+                // --- FIX: Call flushQueue with 'false' for async mid-game batches ---
+                this.flushQueue(false);
             }
         } catch (Exception e) {
             System.err.println("ArgentumStateLogger Error: Failed to queue state for event " + eventType);
@@ -110,10 +84,11 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
     public void logOnGameOver() {
         queueState("GAME_OVER");
-        flushQueue();
+        // --- FIX: Call flushQueue with 'true' for a synchronous final batch ---
+        flushQueue(true);
     }
     
-    private void flushQueue(boolean synchronous) {
+    public void flushQueue(boolean synchronous) {
         if (this.eventQueue.isEmpty() || this.currentMatchId == null) {
             return;
         }
@@ -134,7 +109,7 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-state";
     }
 
-    private static void sendBatchToLogServer(String matchId, String jsonBatch) {
+    private static void sendBatchToLogServer(String matchId, String jsonBatch, boolean synchronous) {
         try {
             String endpointUrl = getLogEndpointUrl();
             HttpRequest request = HttpRequest.newBuilder()
@@ -154,21 +129,21 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
             } else {
                 // For mid-game, send asynchronously
                 httpClient.sendAsync(request, BodyHandlers.ofString())
-                .thenAccept(response -> {
-                    if (response.statusCode() != 200) {
-                         System.err.println("ArgentumLogger: Received non-200 response for batch: " + response.body());
-                    }
-                })
-                .exceptionally(e -> {
-                    System.err.println("ArgentumStateLogger: Batch HTTP request failed: " + e.getMessage());
-                    return null;
-                });
+                    .thenAccept(response -> {
+                        if (response.statusCode() != 200) {
+                             System.err.println("ArgentumLogger (ASYNC): Received non-200 response for batch: " + response.body());
+                        }
+                    })
+                    .exceptionally(e -> {
+                        System.err.println("ArgentumStateLogger: Batch HTTP request failed: " + e.getMessage());
+                        return null;
+                    });
+            }
         } catch (Exception e) {
             System.err.println("ArgentumStateLogger: Catastrophic failure in sendBatchToLogServer.");
             e.printStackTrace();
         }
     }
-
     private static SpectatorStateUpdate createSpectatorUpdateFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
         ClientGameState gameState = new ClientGameState();
