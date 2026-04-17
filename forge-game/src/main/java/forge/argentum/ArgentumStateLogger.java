@@ -50,31 +50,46 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
     
     @Override
     public Void visit(GameEventTurnPhase event) {
-        queueState(event.game, "TURN_PHASE");
+        // The PlayerView object has a getGame() method.
+        if (event.playerTurn() != null) {
+            queueState(event.playerTurn().getGame(), "TURN_PHASE");
+        }
         return null;
     }
 
     @Override
     public Void visit(GameEventSpellResolved event) {
-        queueState(event.spell().getGame(), "SPELL_RESOLVED");
+        // The SpellAbilityView gives us the card, which gives us the game.
+        if (event.spell() != null && event.spell().getHostCard() != null) {
+            queueState(event.spell().getHostCard().getGame(), "SPELL_RESOLVED");
+        }
         return null;
     }
 
     @Override
     public Void visit(GameEventSpellAbilityCast event) {
-        queueState(event.sa.getGame(), "SPELL_CAST");
+        // The SpellAbilityView gives us the card, which gives us the game.
+        if (event.sa() != null && event.sa().getHostCard() != null) {
+            queueState(event.sa().getHostCard().getGame(), "SPELL_CAST");
+        }
         return null;
     }
 
     @Override
     public Void visit(GameEventPlayerDamaged event) {
-        queueState(event.player.getGame(), "PLAYER_DAMAGED");
+        // The PlayerView object has a getGame() method.
+        if (event.target() != null) {
+            queueState(event.target().getGame(), "PLAYER_DAMAGED");
+        }
         return null;
     }
 
     @Override
     public Void visit(GameEventBlockersDeclared event) {
-        queueState(event.player.getGame(), "BLOCKERS_DECLARED");
+        // This event has a 'player' field which is a PlayerView.
+        if (event.player != null) {
+            queueState(event.player.getGame(), "BLOCKERS_DECLARED");
+        }
         return null;
     }
 
@@ -166,7 +181,6 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         int currentTurnNumber = isPreGame ? 0 : game.getPhaseHandler().getTurn();
         String activePlayerId = (isPreGame || game.getPhaseHandler().getPlayerTurn() == null) ? null : String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
         String priorityPlayerId = (isPreGame || game.getPhaseHandler().getPriorityPlayer() == null) ? null : String.valueOf(game.getPhaseHandler().getPriorityPlayer().getId());
-
         snapshot.gameSessionId = game.getMatch().getMatchId(); 
         snapshot.player1Id = String.valueOf(player1.getId());
         snapshot.player2Id = String.valueOf(player2.getId());
@@ -176,12 +190,10 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         snapshot.activePlayerId = activePlayerId;
         snapshot.priorityPlayerId = priorityPlayerId;
         snapshot.combat = createCombatState(currentCombat);
-        
         gameState.cards = new HashMap<>();
         for (Card card : game.getCardsInGame()) {
             gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
         }
-        
         gameState.zones = new ArrayList<>();
         for (Player p : players) {
             for (ZoneType zt : Player.ALL_ZONES) {
@@ -192,19 +204,16 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
             }
         }
         gameState.zones.add(createClientZone(game.getStackZone()));
-        
         gameState.players = new ArrayList<>();
         for(Player p : players) {
             gameState.players.add(createClientPlayer(p));
         }
-        
         gameState.currentPhase = currentPhaseName;
         gameState.currentStep = currentStepName;
         gameState.activePlayerId = activePlayerId;
         gameState.priorityPlayerId = priorityPlayerId;
         gameState.turnNumber = currentTurnNumber;
         gameState.isGameOver = game.isGameOver();
-        
         String winnerId = null;
         if (gameState.isGameOver) {
             for (Player p : players) {
@@ -215,7 +224,6 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
             }
         }
         gameState.winnerId = winnerId;
-        
         gameState.gameLog = Collections.singletonList(isPreGame ? "> Drawing opening hands..." : "> Turn " + gameState.turnNumber + ": " + currentStep.replace("_", " "));
         gameState.combat = createCombatState(currentCombat);
         snapshot.gameState = gameState;
