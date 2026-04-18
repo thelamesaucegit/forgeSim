@@ -185,7 +185,7 @@ public class SimulateMatch {
             e.printStackTrace();
         } finally {
  if (g1.getArgentumLogger() != null) {
-            g1.getArgentumLogger().flushQueue();
+            g1.getArgentumLogger().flushQueue(true);
         }
             if (sw.isStarted()) {
                 sw.stop();
