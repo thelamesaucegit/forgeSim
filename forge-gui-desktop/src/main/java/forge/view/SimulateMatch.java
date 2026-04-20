@@ -159,7 +159,12 @@ public class SimulateMatch {
                 simulateSingleMatch(mc, iGame, outputGamelog);
             }
         }
-        
+        if (mc.getGames().size() > 0) {
+            Game lastGame = mc.getGames().get(mc.getGames().size() - 1);
+            if (lastGame.getArgentumLogger() != null) {
+                lastGame.getArgentumLogger().flushAllStates();
+            }
+        }
         System.out.flush();
     }
 
@@ -185,10 +190,7 @@ public class SimulateMatch {
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
- if (g1.getArgentumLogger() != null) {
-            //g1.getArgentumLogger().flushQueue(true);
-       g1.getArgentumLogger().flushAllStates();
-        }
+
             if (sw.isStarted()) {
                 sw.stop();
             }
