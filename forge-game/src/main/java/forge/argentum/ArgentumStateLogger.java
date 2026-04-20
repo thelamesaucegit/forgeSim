@@ -1,5 +1,4 @@
 // /usr/src/app/forge-game/src/main/java/forge/argentum/ArgentumStateLogger.java
-
 package forge.argentum;
 
 import com.google.common.eventbus.Subscribe;
@@ -19,10 +18,6 @@ import forge.game.spellability.TargetChoices;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
-import forge.argentum.ArgentumEventVisitor; 
-import forge.game.event.GameEventCombatResult; // We need this event type
-
-
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -31,12 +26,13 @@ import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
+
+// Correctly importing the new visitor class from the same package.
+import forge.argentum.ArgentumEventVisitor; 
 
 public class ArgentumStateLogger {
     private final Game game;
@@ -52,13 +48,13 @@ public class ArgentumStateLogger {
 
     @Subscribe
     public void onGameEvent(GameEvent event) {
-        // Capture every event for the detailed log
+        // Step 1: Always visit the event with our new visitor to generate a log entry.
         Map<String, Object> eventDto = event.visit(logVisitor);
         if (eventDto != null) {
             gameLogEvents.add(eventDto);
         }
 
-        // Only create a full game state snapshot for visually significant events
+        // Step 2: Only if it's a significant visual moment, create a full game state snapshot.
         if (shouldCreateSnapshot(event)) {
             queueState(event.getClass().getSimpleName());
         }
@@ -79,42 +75,46 @@ public class ArgentumStateLogger {
         try {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(this.game, eventType);
             if (snapshot != null) {
-                // Add the detailed log events to this snapshot
+                // Attach the buffered log events to this snapshot
                 snapshot.gameState.gameLog = new ArrayList<>(gameLogEvents);
                 snapshots.add(snapshot);
-                gameLogEvents.clear(); // Clear the log buffer after adding it to a snapshot
+                gameLogEvents.clear(); // Reset the buffer for the next state
             }
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger Error: Failed to queue state for event " + eventType);
+            System.err.println("ArgentumStateLogger Error: Failed to queue state for event " + eventType + ". Error: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     public void flushAllStates() {
-        // This is called only once at the very end of the game.
-        if (snapshots.isEmpty()) return;
-
-        // Ensure the final game over state is captured
-        queueState("GAME_OVER");
-
-        String matchId = this.game.getMatch().getMatchId();
-        String jsonPayload = gson.toJson(snapshots);
+        if (this.game.isGameOver() && snapshots.isEmpty() && gameLogEvents.isEmpty()) {
+            // If the game ends instantly without any snapshot-worthy events, create one final state.
+            queueState("GAME_OVER_IMMEDIATE"); 
+        } else {
+            // Otherwise, capture the final state as normal.
+            queueState("GAME_OVER");
+        }
         
+        String matchId = this.game.getMatch().getMatchId();
+        if (matchId == null || snapshots.isEmpty()) {
+             System.err.println("ArgentumStateLogger: Aborting flush, no matchId or no snapshots to send.");
+             return;
+        }
+
+        String jsonPayload = gson.toJson(snapshots);
         sendFinalPayloadToServer(matchId, jsonPayload);
     }
     
     private static void sendFinalPayloadToServer(String matchId, String jsonPayload) {
         try {
-            String endpointUrl = getLogEndpointUrl();
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(endpointUrl))
+                    .uri(URI.create(getLogEndpointUrl()))
                     .header("Content-Type", "application/json")
                     .header("X-Match-ID", matchId) 
-                    .timeout(Duration.ofSeconds(90)) // Generous timeout for the single large payload
+                    .timeout(Duration.ofSeconds(90))
                     .POST(BodyPublishers.ofString(jsonPayload))
                     .build();
     
-            // Use a synchronous (blocking) call to ensure this completes before the process exits.
             HttpResponse<String> response = httpClient.send(request, BodyHandlers.ofString());
             if (response.statusCode() != 200) {
                  System.err.println("ArgentumLogger (FINAL): Received non-200 response: " + response.statusCode() + " " + response.body());
@@ -123,12 +123,10 @@ public class ArgentumStateLogger {
             }
         } catch (Exception e) {
             System.err.println("ArgentumStateLogger: Final payload request failed: " + e.getMessage());
-            e.printStackTrace();
         }
     }
 
     private static String getLogEndpointUrl() {
-        // The API route now expects a single payload, not a batch
         String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
         return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-replay";
     }
@@ -191,7 +189,6 @@ public class ArgentumStateLogger {
             }
         }
         gameState.winnerId = winnerId;
-        gameState.gameLog = Collections.singletonList(isPreGame ? "> Drawing opening hands..." : "> Turn " + gameState.turnNumber + ": " + currentStep.replace("_", " "));
         gameState.combat = createCombatState(currentCombat);
         snapshot.gameState = gameState;
         return snapshot;
@@ -218,7 +215,7 @@ public class ArgentumStateLogger {
                     if (sa.usesTargeting()) {
                         TargetChoices targets = sa.getTargets();
                         if (targets != null) {
-                            for (GameObject target : targets) {
+                            for (GameObject target : targets.getTargets()) {
                                 TargetInfo ti = new TargetInfo();
                                 if (target instanceof Card) {
                                     ti.entityId = String.valueOf(((Card) target).getId());
@@ -240,26 +237,19 @@ public class ArgentumStateLogger {
         return cc;
     }
 
-private static ClientZone createClientZone(Zone zone) {
+    private static ClientZone createClientZone(Zone zone) {
         ClientZone cz = new ClientZone();
-        
-ZoneId zoneIdObject = new ZoneId();
+        ZoneId zoneIdObject = new ZoneId();
         zoneIdObject.zoneType = zone.getZoneType().name();
-        zoneIdObject.ownerId = zone.getPlayer() != null ? String.valueOf(zone.getPlayer().getId()) : "game";
-        
-        cz.zoneId = zoneIdObject; // Assign the object
-        
-        cz.zoneId = zoneIdObject; // Assign the object, not a string
-        // --- END FIX ---
-        
+        String ownerId = zone.getPlayer() != null ? String.valueOf(zone.getPlayer().getId()) : "game";
+        zoneIdObject.ownerId = ownerId;
+        cz.zoneId = zoneIdObject;
         cz.cardIds = new ArrayList<>();
         for (Card card : zone.getCards()) {
             cz.cardIds.add(String.valueOf(card.getId()));
         }
-        // The 'size' and 'isVisible' fields will be added to the data class
         cz.size = cz.cardIds.size();
-        cz.isVisible = true; // Assuming all zones sent are visible for replay
-        
+        cz.isVisible = true;
         return cz;
     }
 
@@ -272,9 +262,7 @@ ZoneId zoneIdObject = new ZoneId();
     }
 
     private static CombatState createCombatState(Combat combat) {
-        if (combat == null) {
-            return null;
-        }
+        if (combat == null) { return null; }
         CombatState cs = new CombatState();
         cs.attackers = new ArrayList<>();
         cs.groups = new ArrayList<>();
