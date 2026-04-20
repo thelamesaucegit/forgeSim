@@ -31,6 +31,9 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
+// Correctly importing the new visitor class from the same package.
+import forge.argentum.ArgentumEventVisitor; 
+
 public class ArgentumStateLogger {
     private final Game game;
     private final List<SpectatorStateUpdate> snapshots = new ArrayList<>();
@@ -45,10 +48,13 @@ public class ArgentumStateLogger {
 
     @Subscribe
     public void onGameEvent(GameEvent event) {
+        // Step 1: Always visit the event with our new visitor to generate a log entry.
         Map<String, Object> eventDto = event.visit(logVisitor);
         if (eventDto != null) {
             gameLogEvents.add(eventDto);
         }
+
+        // Step 2: Only if it's a significant visual moment, create a full game state snapshot.
         if (shouldCreateSnapshot(event)) {
             queueState(event.getClass().getSimpleName());
         }
@@ -81,10 +87,20 @@ public class ArgentumStateLogger {
     }
 
     public void flushAllStates() {
-        if (snapshots.isEmpty() && gameLogEvents.isEmpty()) return;
-        // Create one final state to capture the end of the game
-        queueState("GAME_OVER");
+        if (this.game.isGameOver() && snapshots.isEmpty() && gameLogEvents.isEmpty()) {
+            // If the game ends instantly without any snapshot-worthy events, create one final state.
+            queueState("GAME_OVER_IMMEDIATE"); 
+        } else {
+            // Otherwise, capture the final state as normal.
+            queueState("GAME_OVER");
+        }
+        
         String matchId = this.game.getMatch().getMatchId();
+        if (matchId == null || snapshots.isEmpty()) {
+             System.err.println("ArgentumStateLogger: Aborting flush, no matchId or no snapshots to send.");
+             return;
+        }
+
         String jsonPayload = gson.toJson(snapshots);
         sendFinalPayloadToServer(matchId, jsonPayload);
     }
@@ -182,7 +198,7 @@ public class ArgentumStateLogger {
         ClientCard cc = new ClientCard();
         cc.entityId = String.valueOf(card.getId());
         cc.name = card.getName();
-        cc.imageUri = null; // This can be populated later if needed
+        cc.imageUri = null;
         cc.cardTypes = card.getType().getCoreTypes().stream().map(Object::toString).collect(Collectors.toList());
         cc.isTapped = card.isTapped();
         cc.isAttacking = combat != null && combat.isAttacking(card);
