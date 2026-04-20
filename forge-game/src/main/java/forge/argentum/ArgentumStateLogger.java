@@ -26,7 +26,6 @@ import java.net.http.HttpRequest.BodyPublishers;
 import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Duration;
 import java.util.ArrayList;
-import java.util.Collections;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -70,18 +69,20 @@ public class ArgentumStateLogger {
         try {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(this.game, eventType);
             if (snapshot != null) {
+                // Attach the buffered log events to this snapshot
                 snapshot.gameState.gameLog = new ArrayList<>(gameLogEvents);
                 snapshots.add(snapshot);
-                gameLogEvents.clear();
+                gameLogEvents.clear(); // Reset the buffer for the next state
             }
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger Error: Failed to queue state: " + e.getMessage());
+            System.err.println("ArgentumStateLogger Error: Failed to queue state for event " + eventType + ". Error: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     public void flushAllStates() {
         if (snapshots.isEmpty() && gameLogEvents.isEmpty()) return;
+        // Create one final state to capture the end of the game
         queueState("GAME_OVER");
         String matchId = this.game.getMatch().getMatchId();
         String jsonPayload = gson.toJson(snapshots);
@@ -172,7 +173,6 @@ public class ArgentumStateLogger {
             }
         }
         gameState.winnerId = winnerId;
-        // The gameLog is now populated from the buffered events, not a placeholder string
         gameState.combat = createCombatState(currentCombat);
         snapshot.gameState = gameState;
         return snapshot;
@@ -182,7 +182,7 @@ public class ArgentumStateLogger {
         ClientCard cc = new ClientCard();
         cc.entityId = String.valueOf(card.getId());
         cc.name = card.getName();
-        cc.imageUri = null;
+        cc.imageUri = null; // This can be populated later if needed
         cc.cardTypes = card.getType().getCoreTypes().stream().map(Object::toString).collect(Collectors.toList());
         cc.isTapped = card.isTapped();
         cc.isAttacking = combat != null && combat.isAttacking(card);
@@ -199,7 +199,7 @@ public class ArgentumStateLogger {
                     if (sa.usesTargeting()) {
                         TargetChoices targets = sa.getTargets();
                         if (targets != null) {
-                            for (GameObject target : targets) {
+                            for (GameObject target : targets.getTargets()) {
                                 TargetInfo ti = new TargetInfo();
                                 if (target instanceof Card) {
                                     ti.entityId = String.valueOf(((Card) target).getId());
