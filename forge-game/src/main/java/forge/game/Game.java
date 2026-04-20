@@ -391,7 +391,7 @@ private boolean isCopy = false;
         sbaCheckedCommandList = new ArrayList<>();
 
         view.updatePlayers(this);
-        subscribeToEvents(argentumLogger.getLogCollector());
+        subscribeToEvents(argentumLogger); // This line should be present
 
         subscribeToEvents(gameLog.getEventVisitor());
     }
