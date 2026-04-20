@@ -11,6 +11,23 @@ import java.util.LinkedHashMap;
 
 public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
 
+    // Private helper methods are fine
+    private Map<String, Object> getCardDto(CardView card) {
+        if (card == null) return null;
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("id", String.valueOf(card.getId()));
+        dto.put("name", card.getName());
+        return dto;
+    }
+
+    private Map<String, Object> getPlayerDto(PlayerView player) {
+        if (player == null) return null;
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("name", player.getName());
+        return dto;
+    }
+
+    // All visit methods MUST use @Override and public accessors like event.turnNumber()
     @Override
     public Map<String, Object> visit(GameEventTurnBegan event) {
         Map<String, Object> dto = new LinkedHashMap<>();
@@ -32,7 +49,6 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
         Map<String, Object> dto = new LinkedHashMap<>();
         dto.put("type", "SPELL_CAST");
         SpellAbilityView sa = event.sa();
-        // SpellAbilityView does not have getActivatingPlayer, we get it from the host card's controller
         String casterName = sa.getHostCard().getController().getName();
         String spellName = sa.getHostCard().getName();
         dto.put("description", casterName + " casts " + spellName);
@@ -58,7 +74,7 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
         dto.put("description", event.card().getName() + " moves from " + fromStr + " to " + toStr);
         return dto;
     }
-
+    
     @Override
     public Map<String, Object> visit(GameEventAttackersDeclared event) {
         Map<String, Object> dto = new LinkedHashMap<>();
@@ -66,7 +82,7 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
         dto.put("description", event.attackingPlayer().getName() + " declares attackers.");
         return dto;
     }
-
+    
     @Override
     public Map<String, Object> visit(GameEventBlockersDeclared event) {
         Map<String, Object> dto = new LinkedHashMap<>();
@@ -74,7 +90,7 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
         dto.put("description", event.defendingPlayer().getName() + " declares blockers.");
         return dto;
     }
-
+    
     @Override
     public Map<String, Object> visit(GameEventCombatResult event) {
         Map<String, Object> dto = new LinkedHashMap<>();
