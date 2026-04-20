@@ -79,7 +79,7 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
     public Map<String, Object> visit(GameEventAttackersDeclared event) {
         Map<String, Object> dto = new LinkedHashMap<>();
         dto.put("type", "ATTACKERS_DECLARED");
-        dto.put("description", event.attackingPlayer().getName() + " declares attackers.");
+        dto.put("description", event.player().getName() + " declares attackers.");
         return dto;
     }
     
@@ -92,9 +92,9 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
     }
     
     @Override
-    public Map<String, Object> visit(GameEventCombatResult event) {
+    public Map<String, Object> visit(GameEventCombatEnded event) {
         Map<String, Object> dto = new LinkedHashMap<>();
-        dto.put("type", "COMBAT_RESULT");
+        dto.put("type", "COMBAT_ENDED");
         dto.put("description", "Combat damage is dealt.");
         return dto;
     }

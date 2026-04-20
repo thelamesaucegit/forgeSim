@@ -19,7 +19,6 @@ package forge.game.ability.effects;
 
 import java.util.Arrays;
 import java.util.List;
-import forge.argentum.ArgentumStateLogger;
 import forge.util.Lang;
 import org.apache.commons.lang3.StringUtils;
 import org.apache.commons.lang3.mutable.MutableBoolean;

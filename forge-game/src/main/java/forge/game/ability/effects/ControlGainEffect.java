@@ -6,7 +6,6 @@ import java.util.List;
 import java.util.Map;
 
 import com.google.common.collect.Lists;
-import forge.argentum.ArgentumStateLogger;
 import com.google.common.collect.Maps;
 import forge.GameCommand;
 import forge.game.Game;
