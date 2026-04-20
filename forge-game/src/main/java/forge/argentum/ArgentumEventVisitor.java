@@ -1,42 +1,38 @@
 // /usr/src/app/forge-game/src/main/java/forge/argentum/ArgentumEventVisitor.java
 package forge.argentum;
 
-import forge.game.GameEntity;
 import forge.game.card.Card;
+import forge.game.card.CardView;
 import forge.game.event.*;
 import forge.game.player.Player;
-import java.util.ArrayList;
-import java.util.Collection;
-import java.util.LinkedHashMap;
-import java.util.List;
+import forge.game.player.PlayerView;
+import forge.game.spellability.SpellAbilityView;
+import forge.game.zone.ZoneView;
 import java.util.Map;
+import java.util.LinkedHashMap;
 
 public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
 
-    private Map<String, Object> getCardDto(Card card) {
+    private Map<String, Object> getCardDto(CardView card) {
         if (card == null) return null;
-        Map<String, Object> cardDto = new LinkedHashMap<>();
-        cardDto.put("id", String.valueOf(card.getId()));
-        cardDto.put("name", card.getName());
-        return cardDto;
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("id", String.valueOf(card.getId()));
+        dto.put("name", card.getName());
+        return dto;
     }
 
-    private Map<String, Object> getPlayerDto(Player player) {
+    private Map<String, Object> getPlayerDto(PlayerView player) {
         if (player == null) return null;
-        Map<String, Object> playerDto = new LinkedHashMap<>();
-        playerDto.put("name", player.getName());
-        // You can add more player details here if needed in the log
-        return playerDto;
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("name", player.getName());
+        return dto;
     }
-    
-    // Add visit methods for all events we want to log
-    // We can add more later as needed
 
     @Override
     public Map<String, Object> visit(GameEventTurnBegan event) {
         Map<String, Object> dto = new LinkedHashMap<>();
         dto.put("type", "TURN_BEGAN");
-        dto.put("description", "Turn " + event.turnNumber + " (" + event.turnOwner.getName() + ")");
+        dto.put("description", "Turn " + event.turnNumber() + " (" + event.turnOwner().getName() + ")");
         return dto;
     }
     
@@ -44,7 +40,7 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
     public Map<String, Object> visit(GameEventTurnPhase event) {
         Map<String, Object> dto = new LinkedHashMap<>();
         dto.put("type", "PHASE_CHANGED");
-        dto.put("description", event.phase.toString() + " Step");
+        dto.put("description", event.phase().toString() + " Step");
         return dto;
     }
 
@@ -52,8 +48,9 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
     public Map<String, Object> visit(GameEventSpellAbilityCast event) {
         Map<String, Object> dto = new LinkedHashMap<>();
         dto.put("type", "SPELL_CAST");
-        String casterName = event.sa.getActivatingPlayer().getName();
-        String spellName = event.sa.getHostCard().getName();
+        SpellAbilityView sa = event.sa();
+        String casterName = sa.getActivatingPlayer().getName();
+        String spellName = sa.getHostCard().getName();
         dto.put("description", casterName + " casts " + spellName);
         return dto;
     }
@@ -62,7 +59,7 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
     public Map<String, Object> visit(GameEventPlayerDamaged event) {
         Map<String, Object> dto = new LinkedHashMap<>();
         dto.put("type", "PLAYER_DAMAGED");
-        dto.put("description", event.target.getName() + " takes " + event.amount + " damage.");
+        dto.put("description", event.target().getName() + " takes " + event.amount() + " damage.");
         return dto;
     }
 
@@ -70,9 +67,11 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
     public Map<String, Object> visit(GameEventCardChangeZone event) {
         Map<String, Object> dto = new LinkedHashMap<>();
         dto.put("type", "ZONE_CHANGE");
-        String fromZone = event.from != null ? event.from.getZoneType().name() : "Nowhere";
-        String toZone = event.to != null ? event.to.getZoneType().name() : "Oblivion";
-        dto.put("description", event.card.getName() + " moves from " + fromZone + " to " + toZone);
+        ZoneView fromZone = event.from();
+        ZoneView toZone = event.to();
+        String fromStr = fromZone != null ? fromZone.zoneType().name() : "Nowhere";
+        String toStr = toZone != null ? toZone.zoneType().name() : "Oblivion";
+        dto.put("description", event.card().getName() + " moves from " + fromStr + " to " + toStr);
         return dto;
     }
 }

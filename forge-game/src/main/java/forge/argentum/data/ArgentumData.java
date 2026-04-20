@@ -1,18 +1,16 @@
-// src/main/java/forge/argentum/data/ArgentumData.java
+// /usr/src/app/forge-game/src/main/java/forge/argentum/data/ArgentumData.java
 package forge.argentum.data;
 
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
-// Using static nested classes keeps all our data models in one file.
 public class ArgentumData {
-
     public static class TargetInfo {
         public String entityId;
-        public String type; // Will be "Card", "Player", etc.
+        public String type;
     }
-   public static class ZoneId {
+    public static class ZoneId {
         public String zoneType;
         public String ownerId;
     }
@@ -20,12 +18,10 @@ public class ArgentumData {
         public List<CombatGroup> groups = new ArrayList<>();
         public List<String> attackers = new ArrayList<>();
     }
-
     public static class CombatGroup {
         public String attackerId;
         public List<String> blockers = new ArrayList<>();
     }
-
     public static class SpectatorStateUpdate {
         public String gameSessionId;
         public ClientGameState gameState;
@@ -39,7 +35,6 @@ public class ArgentumData {
         public boolean isReplay = true;
         public CombatState combat = null;
     }
-
     public static class ClientGameState {
         public Map<String, ClientCard> cards;
         public List<ClientZone> zones;
@@ -52,9 +47,9 @@ public class ArgentumData {
         public boolean isGameOver;
         public String winnerId;
         public CombatState combat = null;
-        public List<String> gameLog;
+        // --- DEFINITIVE FIX: The game log is a list of structured objects, not strings. ---
+        public List<Map<String, Object>> gameLog;
     }
-
     public static class ClientCard {
         public String entityId;
         public String name;
@@ -69,16 +64,12 @@ public class ArgentumData {
         public String attachedTo = null;
         public List<TargetInfo> targets;
     }
-
     public static class ClientZone {
-      public ZoneId zoneId; 
-        public String type;
-        public String ownerId;
+        public ZoneId zoneId;
         public List<String> cardIds;
-          public int size;
+        public int size;
         public boolean isVisible;
     }
-
     public static class ClientPlayer {
         public String playerId;
         public String name;
