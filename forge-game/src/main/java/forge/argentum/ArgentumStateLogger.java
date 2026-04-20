@@ -90,9 +90,8 @@ public class ArgentumStateLogger {
     
     private static void sendFinalPayloadToServer(String matchId, String jsonPayload) {
         try {
-            String endpointUrl = getLogEndpointUrl();
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(endpointUrl))
+                    .uri(URI.create(getLogEndpointUrl()))
                     .header("Content-Type", "application/json")
                     .header("X-Match-ID", matchId) 
                     .timeout(Duration.ofSeconds(90))
@@ -113,6 +112,113 @@ public class ArgentumStateLogger {
     private static String getLogEndpointUrl() {
         String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
         return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-replay";
+    }
+
+    private static SpectatorStateUpdate createSpectatorUpdateFromGame(Game game, String currentStep) {
+        SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
+        ClientGameState gameState = new ClientGameState();
+        List<Player> players = game.getPlayers();
+        if (players.size() < 2) return null;
+        Player player1 = players.get(0);
+        Player player2 = players.get(1);
+        Combat currentCombat = game.getPhaseHandler().getCombat();
+        MagicStack stack = game.getStack();
+        boolean isPreGame = (game.getPhaseHandler().getPhase() == null);
+        String currentPhaseName = isPreGame ? "MULLIGAN" : game.getPhaseHandler().getPhase().name();
+        String currentStepName = isPreGame ? "OPENING_HAND" : currentStep;
+        int currentTurnNumber = isPreGame ? 0 : game.getPhaseHandler().getTurn();
+        String activePlayerId = (isPreGame || game.getPhaseHandler().getPlayerTurn() == null) ? null : String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
+        String priorityPlayerId = (isPreGame || game.getPhaseHandler().getPriorityPlayer() == null) ? null : String.valueOf(game.getPhaseHandler().getPriorityPlayer().getId());
+        snapshot.gameSessionId = game.getMatch().getMatchId(); 
+        snapshot.player1Id = String.valueOf(player1.getId());
+        snapshot.player2Id = String.valueOf(player2.getId());
+        snapshot.player1Name = player1.getName();
+        snapshot.player2Name = player2.getName();
+        snapshot.currentPhase = currentPhaseName;
+        snapshot.activePlayerId = activePlayerId;
+        snapshot.priorityPlayerId = priorityPlayerId;
+        snapshot.combat = createCombatState(currentCombat);
+        gameState.cards = new HashMap<>();
+        for (Card card : game.getCardsInGame()) {
+            gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
+        }
+        gameState.zones = new ArrayList<>();
+        for (Player p : players) {
+            for (ZoneType zt : Player.ALL_ZONES) {
+                Zone zone = p.getZone(zt);
+                if (zone != null) {
+                    gameState.zones.add(createClientZone(zone));
+                }
+            }
+        }
+        gameState.zones.add(createClientZone(game.getStackZone()));
+        gameState.players = new ArrayList<>();
+        for(Player p : players) {
+            gameState.players.add(createClientPlayer(p));
+        }
+        gameState.currentPhase = currentPhaseName;
+        gameState.currentStep = currentStepName;
+        gameState.activePlayerId = activePlayerId;
+        gameState.priorityPlayerId = priorityPlayerId;
+        gameState.turnNumber = currentTurnNumber;
+        gameState.isGameOver = game.isGameOver();
+        String winnerId = null;
+        if (gameState.isGameOver) {
+            for (Player p : players) {
+                if (p.hasWon()) { 
+                    winnerId = String.valueOf(p.getId());
+                    break;
+                }
+            }
+        }
+        gameState.winnerId = winnerId;
+        // The gameLog is now populated from the buffered events, not a placeholder string
+        gameState.combat = createCombatState(currentCombat);
+        snapshot.gameState = gameState;
+        return snapshot;
+    }
+
+    private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
+        ClientCard cc = new ClientCard();
+        cc.entityId = String.valueOf(card.getId());
+        cc.name = card.getName();
+        cc.imageUri = null;
+        cc.cardTypes = card.getType().getCoreTypes().stream().map(Object::toString).collect(Collectors.toList());
+        cc.isTapped = card.isTapped();
+        cc.isAttacking = combat != null && combat.isAttacking(card);
+        cc.isBlocking = combat != null && combat.isBlocking(card);
+        cc.power = card.isCreature() ? card.getNetPower() : null;
+        cc.toughness = card.isCreature() ? card.getNetToughness() : null;
+        cc.damage = card.getDamage();
+        cc.attachedTo = card.isAttachedToEntity() ? String.valueOf(card.getAttachedTo().getId()) : null;
+        cc.targets = new ArrayList<>();
+        if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
+            for (SpellAbilityStackInstance si : stack) {
+                if (si.getSourceCard().equals(card)) {
+                    SpellAbility sa = si.getSpellAbility();
+                    if (sa.usesTargeting()) {
+                        TargetChoices targets = sa.getTargets();
+                        if (targets != null) {
+                            for (GameObject target : targets) {
+                                TargetInfo ti = new TargetInfo();
+                                if (target instanceof Card) {
+                                    ti.entityId = String.valueOf(((Card) target).getId());
+                                    ti.type = "Card";
+                                } else if (target instanceof Player) {
+                                    ti.entityId = String.valueOf(((Player) target).getId());
+                                    ti.type = "Player";
+                                } else {
+                                    continue;
+                                }
+                                cc.targets.add(ti);
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        return cc;
     }
 
     private static ClientZone createClientZone(Zone zone) {
@@ -140,9 +246,7 @@ public class ArgentumStateLogger {
     }
 
     private static CombatState createCombatState(Combat combat) {
-        if (combat == null) {
-            return null;
-        }
+        if (combat == null) { return null; }
         CombatState cs = new CombatState();
         cs.attackers = new ArrayList<>();
         cs.groups = new ArrayList<>();
