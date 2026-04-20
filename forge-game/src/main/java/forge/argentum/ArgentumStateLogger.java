@@ -19,7 +19,9 @@ import forge.game.spellability.TargetChoices;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
-import forge.view.JsonGameListener;
+import forge.argentum.ArgentumEventVisitor; 
+import forge.game.event.GameEventCombatResult; // We need this event type
+
 
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -40,7 +42,7 @@ public class ArgentumStateLogger {
     private final Game game;
     private final List<SpectatorStateUpdate> snapshots = new ArrayList<>();
     private final List<Map<String, Object>> gameLogEvents = new ArrayList<>();
-    private final JsonGameListener.JsonEventVisitor logVisitor = new JsonGameListener.JsonEventVisitor();
+    private final ArgentumEventVisitor logVisitor = new ArgentumEventVisitor();
     private static final Gson gson = new GsonBuilder().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
 
