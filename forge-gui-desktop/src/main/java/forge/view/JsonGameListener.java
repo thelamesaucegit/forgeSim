@@ -44,7 +44,7 @@ public class JsonGameListener {
         }
     }
 
-    private static class JsonEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
+    public static class JsonEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
         private Map<String, Object> getCardDto(CardView card) {
             if (card == null) return null;
             Map<String, Object> cardDto = new LinkedHashMap<>();
