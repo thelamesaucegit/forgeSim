@@ -391,11 +391,15 @@ private boolean isCopy = false;
         sbaCheckedCommandList = new ArrayList<>();
 
         view.updatePlayers(this);
-        subscribeToEvents(argentumLogger); // --- SUBSCRIBE THE INSTANCE ---
+        subscribeToEvents(argentumLogger.getLogCollector());
 
         subscribeToEvents(gameLog.getEventVisitor());
     }
-
+    public void takeArgentumSnapshot(String eventType) {
+        if (this.argentumLogger != null) {
+            this.argentumLogger.createSnapshot(eventType);
+        }
+    }
     public GameView getView() {
         return view;
     }
@@ -596,7 +600,6 @@ private boolean isCopy = false;
         if (maingame == null) {
             fireEvent(new GameEventGameOutcome(result, match.getOutcomes()));
         }
-        argentumLogger.logOnGameOver();
 
     }
 

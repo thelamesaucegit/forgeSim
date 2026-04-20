@@ -1,15 +1,14 @@
-//forge-gui-desktop/src/main/java/forge/view/JsonGameListener.java
-
+// /usr/src/app/forge-gui-desktop/src/main/java/forge/view/JsonGameListener.java
 package forge.view;
 
-import com.google.common.collect.Multimap; // RE-ADDED: This is now required by the visit(GameEventBlockersDeclared) method.
+import com.google.common.collect.Multimap;
 import com.google.common.eventbus.Subscribe;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.game.GameEntityView;
 import forge.game.card.CardView;
 import forge.game.event.*;
-import forge.game.player.PlayerView; // RE-ADDED: This is now required by the getPlayerDto and other visit methods.
+import forge.game.player.PlayerView;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.LinkedHashMap;
@@ -18,16 +17,34 @@ import java.util.Map;
 
 public class JsonGameListener {
     private final Gson gson = new GsonBuilder().setLenient().create();
+    private final List<Map<String, Object>> logBuffer;
+    private final boolean directPrint;
+
+    // Original constructor for old functionality
+    public JsonGameListener() {
+        this.logBuffer = null;
+        this.directPrint = true;
+    }
+
+    // New constructor for ArgentumStateLogger
+    public JsonGameListener(List<Map<String, Object>> buffer) {
+        this.logBuffer = buffer;
+        this.directPrint = false;
+    }
 
     @Subscribe
     public void recordEvent(GameEvent event) {
         Map<String, Object> dto = event.visit(new JsonEventVisitor());
         if (dto != null) {
-            System.out.println("JSON_EVENT:" + gson.toJson(dto));
+            if (directPrint) {
+                System.out.println("JSON_EVENT:" + gson.toJson(dto));
+            } else if (logBuffer != null) {
+                logBuffer.add(dto);
+            }
         }
     }
 
-    private static class JsonEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
+    public static class JsonEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
         private Map<String, Object> getCardDto(CardView card) {
             if (card == null) return null;
             Map<String, Object> cardDto = new LinkedHashMap<>();

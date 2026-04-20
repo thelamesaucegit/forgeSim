@@ -18,6 +18,7 @@ import forge.game.spellability.TargetChoices;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
+import forge.view.JsonGameListener; // Now we import the class
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -31,75 +32,49 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-
-
 public class ArgentumStateLogger {
     private final Game game;
     private final List<SpectatorStateUpdate> snapshots = new ArrayList<>();
-    private final List<Map<String, Object>> gameLogEvents = new ArrayList<>();
-    private final ArgentumEventVisitor logVisitor = new ArgentumEventVisitor();
+    private final List<Map<String, Object>> gameLogBuffer = new ArrayList<>();
+    private final JsonGameListener logCollector; // This will collect the logs
+
     private static final Gson gson = new GsonBuilder().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
 
     public ArgentumStateLogger(Game game) {
         this.game = game;
+        // Pass the buffer to the listener. All events will now be collected here.
+        this.logCollector = new JsonGameListener(this.gameLogBuffer);
+    }
+    
+    public JsonGameListener getLogCollector() {
+        return this.logCollector;
     }
 
-    @Subscribe
-    public void onGameEvent(GameEvent event) {
-        // Step 1: Always visit the event with our new visitor to generate a log entry.
-        Map<String, Object> eventDto = event.visit(logVisitor);
-        if (eventDto != null) {
-            gameLogEvents.add(eventDto);
-        }
-
-        // Step 2: Only if it's a significant visual moment, create a full game state snapshot.
-        if (shouldCreateSnapshot(event)) {
-            queueState(event.getClass().getSimpleName());
-        }
-    }
-
-    private boolean shouldCreateSnapshot(GameEvent event) {
-        return event instanceof GameEventTurnPhase || 
-               event instanceof GameEventSpellAbilityCast ||
-               event instanceof GameEventAttackersDeclared ||
-               event instanceof GameEventBlockersDeclared ||
-               event instanceof GameEventCombatResult;
-    }
-
-    private void queueState(String eventType) {
+    // This method is now called by the Game constructor, not the event bus
+    public void createSnapshot(String eventType) {
         if (this.game == null || this.game.isCopiedGame() || this.game.getPhaseHandler() == null) {
             return;
         }
         try {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(this.game, eventType);
             if (snapshot != null) {
-                // Attach the buffered log events to this snapshot
-                snapshot.gameState.gameLog = new ArrayList<>(gameLogEvents);
+                snapshot.gameState.gameLog = new ArrayList<>(gameLogBuffer);
                 snapshots.add(snapshot);
-                gameLogEvents.clear(); // Reset the buffer for the next state
+                gameLogBuffer.clear();
             }
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger Error: Failed to queue state for event " + eventType + ". Error: " + e.getMessage());
+            System.err.println("ArgentumStateLogger Error: Failed to create snapshot for event " + eventType + ". Error: " + e.getMessage());
             e.printStackTrace();
         }
     }
 
     public void flushAllStates() {
-        if (this.game.isGameOver() && snapshots.isEmpty() && gameLogEvents.isEmpty()) {
-            // If the game ends instantly without any snapshot-worthy events, create one final state.
-            queueState("GAME_OVER_IMMEDIATE"); 
-        } else {
-            // Otherwise, capture the final state as normal.
-            queueState("GAME_OVER");
-        }
+        // Create one final snapshot to capture the end of the game
+        createSnapshot("GAME_OVER");
+        if (snapshots.isEmpty()) return;
         
         String matchId = this.game.getMatch().getMatchId();
-        if (matchId == null || snapshots.isEmpty()) {
-             System.err.println("ArgentumStateLogger: Aborting flush, no matchId or no snapshots to send.");
-             return;
-        }
-
         String jsonPayload = gson.toJson(snapshots);
         sendFinalPayloadToServer(matchId, jsonPayload);
     }

@@ -1,3 +1,5 @@
+//forge-game/src/main/java/forge/game/phase/PhaseHandler.java
+
 /*
  * Forge: Play Magic: the Gathering.
  * Copyright (C) 2011  Forge Team
@@ -357,6 +359,8 @@ public class PhaseHandler implements java.io.Serializable {
                     game.getEndOfCombat().executeAt();
 
                     //SDisplayUtil.showTab(EDocID.REPORT_STACK.getDoc());
+                                    game.takeArgentumSnapshot("CombatEnd"); // <-- ADD THIS
+
                     break;
 
                 case MAIN2:
@@ -634,6 +638,8 @@ public class PhaseHandler implements java.io.Serializable {
             attackersMap.putAll(ge, combat.getAttackersOf(ge));
         }
         game.fireEvent(new GameEventAttackersDeclared(playerTurn, attackersMap));
+                game.takeArgentumSnapshot("AttackersDeclared"); // <-- ADD THIS
+
 
         // fire AttackersDeclared trigger
         if (!combat.getAttackers().isEmpty()) {
@@ -745,6 +751,8 @@ public class PhaseHandler implements java.io.Serializable {
                 blockers.put(ge, protectThisDefender);
             }
             game.fireEvent(new GameEventBlockersDeclared(p, blockers));
+        game.takeArgentumSnapshot("BlockersDeclared"); // <-- ADD THIS
+
         } while (p != playerTurn);
 
         combat.orderBlockersForDamageAssignment(); // 509.2
