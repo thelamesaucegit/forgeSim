@@ -159,6 +159,12 @@ public class SimulateMatch {
                 simulateSingleMatch(mc, iGame, outputGamelog);
             }
         }
+        if (mc.getGames().size() > 0) {
+            Game lastGame = mc.getGames().get(mc.getGames().size() - 1);
+            if (lastGame.getArgentumLogger() != null) {
+                lastGame.getArgentumLogger().flushAllStates();
+            }
+        }
         System.out.flush();
     }
 
@@ -172,7 +178,7 @@ public class SimulateMatch {
         final Game g1 = mc.createGame();
 
         // --- FIX: Use the correct method to subscribe our listener to the game's event bus ---
-        g1.subscribeToEvents(new JsonGameListener());
+       // g1.subscribeToEvents(new JsonGameListener());
 
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
@@ -185,7 +191,7 @@ public class SimulateMatch {
             e.printStackTrace();
         } finally {
  if (g1.getArgentumLogger() != null) {
-            g1.getArgentumLogger().flushQueue(true);
+            //g1.getArgentumLogger().flushQueue(true);
         }
             if (sw.isStarted()) {
                 sw.stop();
