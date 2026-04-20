@@ -91,7 +91,7 @@ public class JsonGameListener {
         public Map<String, Object> visit(GameEventAttackersDeclared event) {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "ATTACKERS_DECLARED");
-            dto.put("description", event.getAttackingPlayer().getName() + " declares attackers.");
+            dto.put("description", event.player().getName() + " declares attackers.");
             return dto;
         }
 

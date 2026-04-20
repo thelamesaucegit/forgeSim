@@ -159,12 +159,6 @@ public class SimulateMatch {
                 simulateSingleMatch(mc, iGame, outputGamelog);
             }
         }
-        if (mc.getGames().size() > 0) {
-            Game lastGame = mc.getGames().get(mc.getGames().size() - 1);
-            if (lastGame.getArgentumLogger() != null) {
-                lastGame.getArgentumLogger().flushAllStates();
-            }
-        }
         System.out.flush();
     }
 
@@ -196,6 +190,9 @@ public class SimulateMatch {
             }
             if (!g1.isGameOver()) {
                 g1.setGameOver(GameEndReason.Draw);
+            }
+            if (g1.getArgentumLogger() != null) {
+                g1.getArgentumLogger().flushAllStates();
             }
         }
         
