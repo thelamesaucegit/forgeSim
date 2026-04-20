@@ -600,7 +600,6 @@ private boolean isCopy = false;
         if (maingame == null) {
             fireEvent(new GameEventGameOutcome(result, match.getOutcomes()));
         }
-        argentumLogger.logOnGameOver();
 
     }
 
