@@ -19,12 +19,14 @@ import forge.game.spellability.TargetChoices;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
+import forge.view.JsonGameListener;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.net.http.HttpRequest.BodyPublishers;
-import java.net.http.HttpResponse.BodyHandlers; // Required for synchronous call
+import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -34,15 +36,13 @@ import java.util.Map;
 import java.util.concurrent.ConcurrentLinkedQueue;
 import java.util.stream.Collectors;
 
-public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
-
+public class ArgentumStateLogger {
     private final Game game;
-    private final ConcurrentLinkedQueue<String> eventQueue = new ConcurrentLinkedQueue<>();
-    private String currentMatchId;
-
-    private static final Gson gson = new GsonBuilder().setLenient().create();
+    private final List<SpectatorStateUpdate> snapshots = new ArrayList<>();
+    private final List<Map<String, Object>> gameLogEvents = new ArrayList<>();
+    private final JsonGameListener.JsonEventVisitor logVisitor = new JsonGameListener.JsonEventVisitor();
+    private static final Gson gson = new GsonBuilder().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
-    private static final int BATCH_SIZE = 100;
 
     public ArgentumStateLogger(Game game) {
         this.game = game;
@@ -50,31 +50,37 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
 
     @Subscribe
     public void onGameEvent(GameEvent event) {
-        // Only log when the phase changes to reduce database load
-        if (event instanceof GameEventTurnPhase) {
-            event.visit(this);
+        // Capture every event for the detailed log
+        Map<String, Object> eventDto = event.visit(logVisitor);
+        if (eventDto != null) {
+            gameLogEvents.add(eventDto);
+        }
+
+        // Only create a full game state snapshot for visually significant events
+        if (shouldCreateSnapshot(event)) {
+            queueState(event.getClass().getSimpleName());
         }
     }
 
-    @Override
-    public Void visit(GameEventTurnPhase event) {
-        queueState("TURN_PHASE");
-        return null;
+    private boolean shouldCreateSnapshot(GameEvent event) {
+        return event instanceof GameEventTurnPhase || 
+               event instanceof GameEventSpellAbilityCast ||
+               event instanceof GameEventAttackersDeclared ||
+               event instanceof GameEventBlockersDeclared ||
+               event instanceof GameEventCombatResult;
     }
 
     private void queueState(String eventType) {
-        if (this.game == null || this.game.isGameOver() || this.game.isCopiedGame() || this.game.getPhaseHandler() == null) {
+        if (this.game == null || this.game.isCopiedGame() || this.game.getPhaseHandler() == null) {
             return;
         }
         try {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(this.game, eventType);
-            if (snapshot == null) return;
-            String jsonSnapshot = gson.toJson(snapshot);
-            this.eventQueue.add(jsonSnapshot);
-            this.currentMatchId = this.game.getMatch().getMatchId();
-            if (this.eventQueue.size() >= BATCH_SIZE) {
-                // --- FIX: Call flushQueue with 'false' for async mid-game batches ---
-                this.flushQueue(false);
+            if (snapshot != null) {
+                // Add the detailed log events to this snapshot
+                snapshot.gameState.gameLog = new ArrayList<>(gameLogEvents);
+                snapshots.add(snapshot);
+                gameLogEvents.clear(); // Clear the log buffer after adding it to a snapshot
             }
         } catch (Exception e) {
             System.err.println("ArgentumStateLogger Error: Failed to queue state for event " + eventType);
@@ -82,68 +88,49 @@ public class ArgentumStateLogger extends IGameEventVisitor.Base<Void> {
         }
     }
 
-    public void logOnGameOver() {
-        queueState("GAME_OVER");
-        // --- FIX: Call flushQueue with 'true' for a synchronous final batch ---
-        flushQueue(true);
-    }
-    
-    public void flushQueue(boolean synchronous) {
-        if (this.eventQueue.isEmpty() || this.currentMatchId == null) {
-            return;
-        }
-        List<String> statesToSend = new ArrayList<>();
-        String state;
-        while ((state = this.eventQueue.poll()) != null) {
-            statesToSend.add(state);
-        }
-        if (statesToSend.isEmpty()) {
-            return;
-        }
-        String jsonBatch = "[" + String.join(",", statesToSend) + "]";
-        sendBatchToLogServer(this.currentMatchId, jsonBatch, synchronous);
-    }
-    
-    private static String getLogEndpointUrl() {
-        String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
-        return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-state";
-    }
+    public void flushAllStates() {
+        // This is called only once at the very end of the game.
+        if (snapshots.isEmpty()) return;
 
-    private static void sendBatchToLogServer(String matchId, String jsonBatch, boolean synchronous) {
+        // Ensure the final game over state is captured
+        queueState("GAME_OVER");
+
+        String matchId = this.game.getMatch().getMatchId();
+        String jsonPayload = gson.toJson(snapshots);
+        
+        sendFinalPayloadToServer(matchId, jsonPayload);
+    }
+    
+    private static void sendFinalPayloadToServer(String matchId, String jsonPayload) {
         try {
             String endpointUrl = getLogEndpointUrl();
             HttpRequest request = HttpRequest.newBuilder()
                     .uri(URI.create(endpointUrl))
                     .header("Content-Type", "application/json")
                     .header("X-Match-ID", matchId) 
-                    .timeout(Duration.ofSeconds(60))
-                    .POST(BodyPublishers.ofString(jsonBatch))
+                    .timeout(Duration.ofSeconds(90)) // Generous timeout for the single large payload
+                    .POST(BodyPublishers.ofString(jsonPayload))
                     .build();
     
-            if (synchronous) {
-                // For game over, block until the request is sent
-                HttpResponse<String> response = httpClient.send(request, BodyHandlers.ofString());
-                if (response.statusCode() != 200) {
-                    System.err.println("ArgentumLogger (SYNC): Received non-200 response: " + response.body());
-                }
+            // Use a synchronous (blocking) call to ensure this completes before the process exits.
+            HttpResponse<String> response = httpClient.send(request, BodyHandlers.ofString());
+            if (response.statusCode() != 200) {
+                 System.err.println("ArgentumLogger (FINAL): Received non-200 response: " + response.statusCode() + " " + response.body());
             } else {
-                // For mid-game, send asynchronously
-                httpClient.sendAsync(request, BodyHandlers.ofString())
-                    .thenAccept(response -> {
-                        if (response.statusCode() != 200) {
-                             System.err.println("ArgentumLogger (ASYNC): Received non-200 response for batch: " + response.body());
-                        }
-                    })
-                    .exceptionally(e -> {
-                        System.err.println("ArgentumStateLogger: Batch HTTP request failed: " + e.getMessage());
-                        return null;
-                    });
+                 System.out.println("ArgentumLogger (FINAL): Successfully sent " + jsonPayload.length() + " bytes for match " + matchId);
             }
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger: Catastrophic failure in sendBatchToLogServer.");
+            System.err.println("ArgentumStateLogger: Final payload request failed: " + e.getMessage());
             e.printStackTrace();
         }
     }
+
+    private static String getLogEndpointUrl() {
+        // The API route now expects a single payload, not a batch
+        String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
+        return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-replay";
+    }
+
     private static SpectatorStateUpdate createSpectatorUpdateFromGame(Game game, String currentStep) {
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
         ClientGameState gameState = new ClientGameState();
