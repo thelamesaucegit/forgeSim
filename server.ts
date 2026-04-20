@@ -77,15 +77,28 @@ async function spawnMatchProcess({ new: payload }: any) {
             if (code !== 0) return;
             const { gameStates, winner } = await postProcessLog(rawLog, deck1_list, deck2_list, cardDictionary);
             if (!winner) { console.warn(`[PROCESS] No winner found for ${matchId}.`); return; }
-            const finalReplay = processReplay(gameStates);
-            const { error: dbError } = await supabase
+            // Write winner first — small, fast, critical.
+            const { error: winnerError } = await supabase
                 .from('sim_matches')
-                .update({ winner, game_states: finalReplay })
+                .update({ winner })
                 .eq('id', matchId);
 
-            if (dbError) {
-                console.error(`[DB] Update Error for ${matchId}:`, dbError);
+            if (winnerError) {
+                console.error(`[DB] Winner update error for ${matchId}:`, winnerError);
                 return;
+            }
+            console.log(`[DB] Winner saved for ${matchId}.`);
+
+            // Write replay separately — large payload, allowed to be slow.
+            const finalReplay = processReplay(gameStates);
+            const { error: replayError } = await supabase
+                .from('sim_matches')
+                .update({ game_states: finalReplay })
+                .eq('id', matchId);
+
+            if (replayError) {
+                console.error(`[DB] Replay update error for ${matchId}:`, replayError);
+                // Winner is already saved — log and continue rather than returning.
             }
 
             console.log(`[DB] Success for ${matchId}.`);
