@@ -35,7 +35,7 @@ public class ArgentumStateLogger {
     private final Game game;
     private final List<SpectatorStateUpdate> snapshots = new ArrayList<>();
     private final List<Map<String, Object>> gameLogEvents = new ArrayList<>();
-    private final ArgentumEventVisitor logVisitor = new ArgentumEventVisitor();
+    private final JsonGameListener logCollector; 
     private static final Gson gson = new GsonBuilder().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
 

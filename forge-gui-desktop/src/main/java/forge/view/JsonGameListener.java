@@ -43,7 +43,8 @@ public class JsonGameListener {
             }
         }
     }
-
+    
+    // This inner class is now public so ArgentumStateLogger can access it.
     public static class JsonEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
         private Map<String, Object> getCardDto(CardView card) {
             if (card == null) return null;
@@ -73,14 +74,7 @@ public class JsonGameListener {
         public Map<String, Object> visit(GameEventBlockersDeclared event) {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "BLOCKERS_DECLARED");
-            Map<String, List<Map<String, Object>>> blocks = new LinkedHashMap<>();
-            for (Map.Entry<GameEntityView, Multimap<CardView, CardView>> defenderEntry : event.blockers().entrySet()) {
-                for (Map.Entry<CardView, CardView> blockEntry : defenderEntry.getValue().entries()) {
-                    String attackerId = String.valueOf(blockEntry.getKey().getId());
-                    blocks.computeIfAbsent(attackerId, k -> new ArrayList<>()).add(getCardDto(blockEntry.getValue()));
-                }
-            }
-            dto.put("blocks", blocks);
+            dto.put("description", event.defendingPlayer().getName() + " declares blockers.");
             return dto;
         }
         
@@ -89,6 +83,7 @@ public class JsonGameListener {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "SPELL_CAST");
             dto.put("card", getCardDto(event.sa().getHostCard()));
+            dto.put("description", event.sa().getHostCard().getController().getName() + " casts " + event.sa().getHostCard().getName());
             return dto;
         }
 
@@ -96,13 +91,7 @@ public class JsonGameListener {
         public Map<String, Object> visit(GameEventAttackersDeclared event) {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "ATTACKERS_DECLARED");
-            Map<String, Integer> attackers = new LinkedHashMap<>();
-            for (Collection<CardView> band : event.attackersMap().asMap().values()) {
-                for (CardView attacker : band) {
-                    attackers.put(String.valueOf(attacker.getId()), 1);
-                }
-            }
-            dto.put("attackers", attackers);
+            dto.put("description", event.getAttackingPlayer().getName() + " declares attackers.");
             return dto;
         }
 
@@ -110,9 +99,9 @@ public class JsonGameListener {
         public Map<String, Object> visit(GameEventCardChangeZone event) {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "ZONE_CHANGE");
-            dto.put("card", getCardDto(event.card()));
-            dto.put("from", event.from() != null ? event.from().toString() : "Nowhere");
-            dto.put("to", event.to() != null ? event.to().toString() : "Oblivion");
+            String fromStr = event.from() != null ? event.from().zoneType().toString() : "Nowhere";
+            String toStr = event.to() != null ? event.to().zoneType().toString() : "Oblivion";
+            dto.put("description", event.card().getName() + " moves from " + fromStr + " to " + toStr);
             return dto;
         }
         
@@ -120,8 +109,7 @@ public class JsonGameListener {
         public Map<String, Object> visit(GameEventTurnBegan event) {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "TURN_BEGAN");
-            dto.put("turnNumber", event.turnNumber());
-            dto.put("turnOwner", getPlayerDto(event.turnOwner()));
+            dto.put("description", "Turn " + event.turnNumber() + " (" + event.turnOwner().getName() + ")");
             return dto;
         }
         
@@ -129,8 +117,7 @@ public class JsonGameListener {
         public Map<String, Object> visit(GameEventPlayerDamaged event) {
             Map<String, Object> dto = new LinkedHashMap<>();
             dto.put("type", "PLAYER_DAMAGED");
-            dto.put("player", getPlayerDto(event.target()));
-            dto.put("amount", event.amount());
+            dto.put("description", event.target().getName() + " takes " + event.amount() + " damage.");
             return dto;
         }
     }
