@@ -18,7 +18,6 @@ import forge.game.spellability.TargetChoices;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
-import forge.view.JsonGameListener; // Now we import the class
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -35,23 +34,34 @@ import java.util.stream.Collectors;
 public class ArgentumStateLogger {
     private final Game game;
     private final List<SpectatorStateUpdate> snapshots = new ArrayList<>();
-    private final List<Map<String, Object>> gameLogBuffer = new ArrayList<>();
-    private final JsonGameListener logCollector; // This will collect the logs
-
+    private final List<Map<String, Object>> gameLogEvents = new ArrayList<>();
+    private final ArgentumEventVisitor logVisitor = new ArgentumEventVisitor();
     private static final Gson gson = new GsonBuilder().create();
     private static final HttpClient httpClient = HttpClient.newHttpClient();
 
     public ArgentumStateLogger(Game game) {
         this.game = game;
-        // Pass the buffer to the listener. All events will now be collected here.
-        this.logCollector = new JsonGameListener(this.gameLogBuffer);
-    }
-    
-    public JsonGameListener getLogCollector() {
-        return this.logCollector;
     }
 
-    // This method is now called by the Game constructor, not the event bus
+    @Subscribe
+    public void onGameEvent(GameEvent event) {
+        Map<String, Object> eventDto = event.visit(logVisitor);
+        if (eventDto != null) {
+            gameLogEvents.add(eventDto);
+        }
+        if (shouldCreateSnapshot(event)) {
+            createSnapshot(event.getClass().getSimpleName());
+        }
+    }
+
+    private boolean shouldCreateSnapshot(GameEvent event) {
+        return event instanceof GameEventTurnPhase || 
+               event instanceof GameEventSpellAbilityCast ||
+               event instanceof GameEventAttackersDeclared ||
+               event instanceof GameEventBlockersDeclared ||
+               event instanceof GameEventCombatResult;
+    }
+
     public void createSnapshot(String eventType) {
         if (this.game == null || this.game.isCopiedGame() || this.game.getPhaseHandler() == null) {
             return;
@@ -59,9 +69,9 @@ public class ArgentumStateLogger {
         try {
             SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(this.game, eventType);
             if (snapshot != null) {
-                snapshot.gameState.gameLog = new ArrayList<>(gameLogBuffer);
+                snapshot.gameState.gameLog = new ArrayList<>(gameLogEvents);
                 snapshots.add(snapshot);
-                gameLogBuffer.clear();
+                gameLogEvents.clear();
             }
         } catch (Exception e) {
             System.err.println("ArgentumStateLogger Error: Failed to create snapshot for event " + eventType + ". Error: " + e.getMessage());
@@ -70,9 +80,12 @@ public class ArgentumStateLogger {
     }
 
     public void flushAllStates() {
-        // Create one final snapshot to capture the end of the game
-        createSnapshot("GAME_OVER");
-        if (snapshots.isEmpty()) return;
+        if (this.game.isGameOver()) {
+             createSnapshot("GAME_OVER");
+        }
+        if (snapshots.isEmpty()) {
+            return;
+        }
         
         String matchId = this.game.getMatch().getMatchId();
         String jsonPayload = gson.toJson(snapshots);
@@ -189,7 +202,7 @@ public class ArgentumStateLogger {
                     if (sa.usesTargeting()) {
                         TargetChoices targets = sa.getTargets();
                         if (targets != null) {
-                            for (GameObject target : targets.getTargets()) {
+                            for (GameObject target : targets) { // Direct iteration
                                 TargetInfo ti = new TargetInfo();
                                 if (target instanceof Card) {
                                     ti.entityId = String.valueOf(((Card) target).getId());
