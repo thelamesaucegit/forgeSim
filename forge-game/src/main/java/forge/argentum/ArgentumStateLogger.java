@@ -31,8 +31,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
-// Correctly importing the new visitor class from the same package.
-import forge.argentum.ArgentumEventVisitor; 
+
 
 public class ArgentumStateLogger {
     private final Game game;
