@@ -391,11 +391,7 @@ private boolean isCopy = false;
         sbaCheckedCommandList = new ArrayList<>();
 
         view.updatePlayers(this);
-   // 1. Create a special instance of JsonGameListener with the ArgentumLogger's buffer.
-        JsonGameListener argentumLogCollector = new JsonGameListener(argentumLogger.getGameLogBuffer());
-        
-        // 2. Subscribe THIS instance to the event bus.
-        subscribeToEvents(argentumLogCollector);
+        subscribeToEvents(argentumLogger);
         subscribeToEvents(gameLog.getEventVisitor());
     }
     public void takeArgentumSnapshot(String eventType) {

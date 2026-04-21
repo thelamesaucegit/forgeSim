@@ -2,7 +2,6 @@ package forge.game.ability.effects;
 
 import java.util.List;
 import java.util.Map;
-import forge.argentum.ArgentumStateLogger;
 import com.google.common.collect.Iterables;
 import forge.game.Game;
 import forge.game.GameActionUtil;
