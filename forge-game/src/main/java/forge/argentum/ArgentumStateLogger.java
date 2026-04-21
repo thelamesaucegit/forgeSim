@@ -5,6 +5,7 @@ import com.google.common.eventbus.Subscribe;
 import com.google.gson.Gson;
 import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
+import forge.argentum.data.SpectatorStateDiff; // Import our new diff class
 import forge.game.Game;
 import forge.game.GameObject;
 import forge.game.combat.Combat;
@@ -17,26 +18,33 @@ import forge.game.spellability.TargetChoices;
 import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
+
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
-import java.net.http.HttpRequest.BodyPublishers;
-import java.net.http.HttpResponse.BodyHandlers;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.stream.Collectors;
 
 public class ArgentumStateLogger {
+
     private final Game game;
-    private final List<SpectatorStateUpdate> snapshots = new ArrayList<>();
+    private final List<Object> snapshotBatch = new ArrayList<>();
+    private SpectatorStateUpdate blueprintSnapshot = null;
     private final List<Map<String, Object>> gameLogEvents = new ArrayList<>();
     private final ArgentumEventVisitor logVisitor = new ArgentumEventVisitor();
+
+    private static final int BATCH_SIZE = 50; // 1 blueprint + 49 diffs
     private static final Gson gson = new GsonBuilder().create();
-    private static final HttpClient httpClient = HttpClient.newHttpClient();
+    private static final HttpClient httpClient = HttpClient.newBuilder()
+            .version(HttpClient.Version.HTTP_1_1)
+            .connectTimeout(Duration.ofSeconds(10))
+            .build();
 
     public ArgentumStateLogger(Game game) {
         this.game = game;
@@ -63,56 +71,95 @@ public class ArgentumStateLogger {
 
     public void createSnapshot(String eventType) {
         if (this.game == null || this.game.isCopiedGame() || this.game.getPhaseHandler() == null) return;
+
         try {
-            SpectatorStateUpdate snapshot = createSpectatorUpdateFromGame(this.game, eventType);
-            if (snapshot != null) {
-                snapshot.gameState.gameLog = new ArrayList<>(gameLogEvents);
-                snapshots.add(snapshot);
-                gameLogEvents.clear();
+            SpectatorStateUpdate currentState = createSpectatorUpdateFromGame(this.game, eventType);
+            if (currentState == null) return;
+            
+            // ALWAYS attach the accumulated log events to the current state before processing.
+            currentState.gameState.gameLog = new ArrayList<>(gameLogEvents);
+            gameLogEvents.clear(); // Clear the buffer after attaching.
+
+            if (blueprintSnapshot == null) {
+                blueprintSnapshot = currentState;
+                snapshotBatch.add(blueprintSnapshot);
+            } else {
+                SpectatorStateDiff diff = StateDiffer.diff(blueprintSnapshot, currentState);
+                snapshotBatch.add(diff);
+            }
+
+            if (snapshotBatch.size() >= BATCH_SIZE) {
+                flushBatch();
             }
         } catch (Exception e) {
-            System.err.println("ArgentumStateLogger Error: Failed to create snapshot: " + e.getMessage());
+            System.err.println("ArgentumStateLogger Error: Failed to create snapshot/diff: " + e.getMessage());
+            e.printStackTrace();
         }
     }
 
-    public void flushAllStates() {
-        if (this.game.isGameOver()) createSnapshot("GAME_OVER");
-        if (snapshots.isEmpty()) return;
+    private void flushBatch() {
+        if (snapshotBatch.isEmpty()) return;
+
         String matchId = this.game.getMatch().getMatchId();
-        String jsonPayload = gson.toJson(snapshots);
-        sendFinalPayloadToServer(matchId, jsonPayload);
+        List<Object> batchToSend = new ArrayList<>(snapshotBatch);
+        snapshotBatch.clear();
+        blueprintSnapshot = null; // Reset blueprint for the next batch.
+
+        String jsonPayload = gson.toJson(batchToSend);
+        sendBatchToServer(matchId, jsonPayload);
+    }
+
+    public void flushAllStates() {
+        if (this.game.isGameOver()) {
+            createSnapshot("GAME_OVER");
+        }
+        flushBatch(); // Send any remaining items.
     }
     
     private static String getLogEndpointUrl() {
         String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
-        return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-state";
+        // We will append to the existing log, not overwrite a single state.
+        return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-replay";
     }
 
-    private static void sendFinalPayloadToServer(String matchId, String jsonPayload) {
+    private static void sendBatchToServer(String matchId, String jsonPayload) {
+        if (matchId == null || jsonPayload == null || jsonPayload.equals("[]")) return;
         try {
             HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(getLogEndpointUrl()))
-                    .header("Content-Type", "application/json")
-                    .header("X-Match-ID", matchId)
-                    .timeout(Duration.ofSeconds(60))
-                    .POST(BodyPublishers.ofString(jsonPayload))
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, BodyHandlers.ofString());
-            if (response.statusCode() != 200) {
-                System.err.println("ArgentumLogger: Non-200 response on final flush: " + response.body());
-            }
+                .uri(URI.create(getLogEndpointUrl()))
+                .header("Content-Type", "application/json")
+                .header("X-Match-ID", matchId)
+                .timeout(Duration.ofSeconds(60))
+                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                .build();
+
+            httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
+                .thenAccept(response -> {
+                    if (response.statusCode() != 200) {
+                        System.err.println("ArgentumLogger: Non-200 on batch flush (" + response.statusCode() + "): " + response.body());
+                    }
+                })
+                .exceptionally(ex -> {
+                    System.err.println("ArgentumLogger: Exception during async HTTP send: " + ex.getMessage());
+                    return null;
+                });
         } catch (Exception e) {
-            System.err.println("ArgentumLogger: Failed to send final payload: " + e.getMessage());
+            System.err.println("ArgentumLogger: Failed to send batch payload: " + e.getMessage());
         }
     }
 
+    // This is the entire original `createSpectatorUpdateFromGame` method and its helpers.
+    // No changes are needed here, as we need to generate a full state first to be able to diff it.
     private static SpectatorStateUpdate createSpectatorUpdateFromGame(Game game, String currentStep) {
+        // ... (The entire, unchanged body of this method and its helpers from your prompt)
         SpectatorStateUpdate snapshot = new SpectatorStateUpdate();
         ClientGameState gameState = new ClientGameState();
         List<Player> players = game.getPlayers();
         if (players.size() < 2) return null;
+        
         Player player1 = players.get(0);
         Player player2 = players.get(1);
+
         Combat currentCombat = game.getPhaseHandler().getCombat();
         MagicStack stack = game.getStack();
         boolean isPreGame = (game.getPhaseHandler().getPhase() == null);
@@ -121,6 +168,7 @@ public class ArgentumStateLogger {
         int currentTurnNumber = isPreGame ? 0 : game.getPhaseHandler().getTurn();
         String activePlayerId = (isPreGame || game.getPhaseHandler().getPlayerTurn() == null) ? null : String.valueOf(game.getPhaseHandler().getPlayerTurn().getId());
         String priorityPlayerId = (isPreGame || game.getPhaseHandler().getPriorityPlayer() == null) ? null : String.valueOf(game.getPhaseHandler().getPriorityPlayer().getId());
+
         snapshot.gameSessionId = game.getMatch().getMatchId();
         snapshot.player1Id = String.valueOf(player1.getId());
         snapshot.player2Id = String.valueOf(player2.getId());
@@ -130,10 +178,12 @@ public class ArgentumStateLogger {
         snapshot.activePlayerId = activePlayerId;
         snapshot.priorityPlayerId = priorityPlayerId;
         snapshot.combat = createCombatState(currentCombat);
+
         gameState.cards = new HashMap<>();
         for (Card card : game.getCardsInGame()) {
             gameState.cards.put(String.valueOf(card.getId()), createClientCard(card, currentCombat, stack));
         }
+
         gameState.zones = new ArrayList<>();
         for (Player p : players) {
             for (ZoneType zt : Player.ALL_ZONES) {
@@ -144,16 +194,19 @@ public class ArgentumStateLogger {
             }
         }
         gameState.zones.add(createClientZone(game.getStackZone()));
+
         gameState.players = new ArrayList<>();
         for (Player p : players) {
             gameState.players.add(createClientPlayer(p));
         }
+
         gameState.currentPhase = currentPhaseName;
         gameState.currentStep = currentStepName;
         gameState.activePlayerId = activePlayerId;
         gameState.priorityPlayerId = priorityPlayerId;
         gameState.turnNumber = currentTurnNumber;
         gameState.isGameOver = game.isGameOver();
+        
         String winnerId = null;
         if (gameState.isGameOver) {
             for (Player p : players) {
@@ -166,9 +219,10 @@ public class ArgentumStateLogger {
         gameState.winnerId = winnerId;
         gameState.combat = createCombatState(currentCombat);
         snapshot.gameState = gameState;
+
         return snapshot;
     }
-    
+
     private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
         ClientCard cc = new ClientCard();
         cc.entityId = String.valueOf(card.getId());
@@ -189,7 +243,7 @@ public class ArgentumStateLogger {
                     if (sa.usesTargeting()) {
                         TargetChoices targets = sa.getTargets();
                         if (targets != null) {
-                            for (GameObject target : targets) { // Direct iteration is correct
+                            for (GameObject target : targets) {
                                 TargetInfo ti = new TargetInfo();
                                 if (target instanceof Card) {
                                     ti.entityId = String.valueOf(((Card) target).getId());
@@ -208,6 +262,7 @@ public class ArgentumStateLogger {
         }
         return cc;
     }
+
     private static ClientZone createClientZone(Zone zone) {
         ClientZone cz = new ClientZone();
         ZoneId zoneIdObject = new ZoneId();
@@ -220,7 +275,7 @@ public class ArgentumStateLogger {
             cz.cardIds.add(String.valueOf(card.getId()));
         }
         cz.size = cz.cardIds.size();
-        cz.isVisible = true;
+        cz.isVisible = true; // Assuming always visible for replay
         return cz;
     }
 
@@ -248,5 +303,87 @@ public class ArgentumStateLogger {
             cs.groups.add(group);
         }
         return cs;
+    }
+    
+    // --- NESTED UTILITY CLASS FOR DIFFING ---
+    private static class StateDiffer {
+        public static SpectatorStateDiff diff(SpectatorStateUpdate blueprint, SpectatorStateUpdate current) {
+            SpectatorStateDiff diff = new SpectatorStateDiff();
+            diff.gameState = new SpectatorStateDiff.GameStateDiff();
+
+            // Top-level diffs
+            if (!Objects.equals(blueprint.currentPhase, current.currentPhase)) diff.currentPhase = current.currentPhase;
+            if (!Objects.equals(blueprint.activePlayerId, current.activePlayerId)) diff.activePlayerId = current.activePlayerId;
+            if (!Objects.equals(blueprint.priorityPlayerId, current.priorityPlayerId)) diff.priorityPlayerId = current.priorityPlayerId;
+            if (!gson.toJson(blueprint.combat).equals(gson.toJson(current.combat))) diff.combat = current.combat;
+
+            // Nested gameState diffs
+            SpectatorStateDiff.GameStateDiff gsd = diff.gameState;
+            if (!Objects.equals(blueprint.gameState.currentPhase, current.gameState.currentPhase)) gsd.currentPhase = current.gameState.currentPhase;
+            if (!Objects.equals(blueprint.gameState.currentStep, current.gameState.currentStep)) gsd.currentStep = current.gameState.currentStep;
+            if (!Objects.equals(blueprint.gameState.activePlayerId, current.gameState.activePlayerId)) gsd.activePlayerId = current.gameState.activePlayerId;
+            if (!Objects.equals(blueprint.gameState.priorityPlayerId, current.gameState.priorityPlayerId)) gsd.priorityPlayerId = current.gameState.priorityPlayerId;
+            if (blueprint.gameState.turnNumber != current.gameState.turnNumber) gsd.turnNumber = current.gameState.turnNumber;
+            if (blueprint.gameState.isGameOver != current.gameState.isGameOver) gsd.isGameOver = current.gameState.isGameOver;
+            if (!Objects.equals(blueprint.gameState.winnerId, current.gameState.winnerId)) gsd.winnerId = current.gameState.winnerId;
+            if (!gson.toJson(blueprint.gameState.combat).equals(gson.toJson(current.gameState.combat))) gsd.combat = current.gameState.combat;
+            
+            gsd.gameLog = current.gameState.gameLog;
+
+            // Diff Cards
+            gsd.cards = new HashMap<>();
+            for (Map.Entry<String, ClientCard> currentEntry : current.gameState.cards.entrySet()) {
+                String cardId = currentEntry.getKey();
+                ClientCard currentCard = currentEntry.getValue();
+                ClientCard blueprintCard = blueprint.gameState.cards.get(cardId);
+                if (blueprintCard == null || !gson.toJson(blueprintCard).equals(gson.toJson(currentCard))) {
+                    gsd.cards.put(cardId, currentCard);
+                }
+            }
+
+            // Diff Zones
+            gsd.zones = new HashMap<>();
+            for (ClientZone currentZone : current.gameState.zones) {
+                String zoneIdentifier = getZoneIdentifier(currentZone.zoneId);
+                ClientZone blueprintZone = findZone(blueprint.gameState.zones, currentZone.zoneId);
+                if (blueprintZone == null || !Objects.equals(blueprintZone.cardIds, currentZone.cardIds)) {
+                    gsd.zones.put(zoneIdentifier, currentZone);
+                }
+            }
+            
+            // Diff Players
+            gsd.players = new HashMap<>();
+            for (ClientPlayer currentPlayer : current.gameState.players) {
+                String playerId = currentPlayer.playerId;
+                ClientPlayer blueprintPlayer = findPlayer(blueprint.gameState.players, playerId);
+                if (blueprintPlayer == null || !gson.toJson(blueprintPlayer).equals(gson.toJson(currentPlayer))) {
+                    gsd.players.put(playerId, currentPlayer);
+                }
+            }
+
+            return diff;
+        }
+
+        private static String getZoneIdentifier(ZoneId zoneId) {
+            return zoneId.ownerId + "_" + zoneId.zoneType;
+        }
+
+        private static ClientZone findZone(List<ClientZone> zones, ZoneId zoneId) {
+            for (ClientZone z : zones) {
+                if (z.zoneId.ownerId.equals(zoneId.ownerId) && z.zoneId.zoneType.equals(zoneId.zoneType)) {
+                    return z;
+                }
+            }
+            return null;
+        }
+
+        private static ClientPlayer findPlayer(List<ClientPlayer> players, String playerId) {
+            for (ClientPlayer p : players) {
+                if (p.playerId.equals(playerId)) {
+                    return p;
+                }
+            }
+            return null;
+        }
     }
 }
