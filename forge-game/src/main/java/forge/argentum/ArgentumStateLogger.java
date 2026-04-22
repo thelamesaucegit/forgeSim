@@ -67,7 +67,11 @@ public class ArgentumStateLogger {
         // This will capture the state that led to the game ending.
         createSnapshot("GAME_OVER");
     }
-
+ public void forceFinalSnapshot(String eventType) {
+        System.out.println("forceFinalSnapshot called with event: " + eventType);
+        createSnapshot(eventType);
+        flushBatch(); // Immediately flush the final batch synchronously.
+    }
     private boolean shouldCreateSnapshot(GameEvent event) {
         return event instanceof GameEventTurnPhase ||
                event instanceof GameEventSpellAbilityCast ||
@@ -110,14 +114,15 @@ public class ArgentumStateLogger {
         snapshotBatch.clear();
         blueprintSnapshot = null;
         String jsonPayload = gson.toJson(batchToSend);
-        sendBatchToServerAsync(matchId, jsonPayload);
+        System.out.println("Flushing batch of size " + batchToSend.size() + " for match " + matchId);
+        sendBatchToServerBlocking(matchId, jsonPayload);
     }
 
        public void flushAllStates() {
-        // This method is now simpler. It just sends whatever is left in the batch.
-        // The crucial "GAME_OVER" snapshot is now created by the onGameOver event handler.
+        System.out.println("Final flushAllStates called from SimulateMatch.");
         flushBatch();
     }
+    
     
     private static String getLogEndpointUrl() {
         String publicUrl = System.getenv("LOG_ENDPOINT_HOST");
@@ -149,7 +154,7 @@ public class ArgentumStateLogger {
         }
     }
 
-    private static void sendBatchToServerBlocking(String matchId, String jsonPayload) {
+   private static void sendBatchToServerBlocking(String matchId, String jsonPayload) {
         if (matchId == null || jsonPayload == null || jsonPayload.equals("[]")) return;
         try {
             HttpRequest request = HttpRequest.newBuilder()
@@ -163,12 +168,12 @@ public class ArgentumStateLogger {
             HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
             
             if (response.statusCode() != 200) {
-                System.err.println("ArgentumLogger (Blocking): Non-200 on final flush (" + response.statusCode() + "): " + response.body());
+                System.err.println("ArgentumLogger (Blocking): Non-200 on flush (" + response.statusCode() + "): " + response.body());
             } else {
-                System.out.println("ArgentumLogger (Blocking): Final batch flushed successfully.");
+                 System.out.println("ArgentumLogger (Blocking): Batch flushed successfully.");
             }
         } catch (IOException | InterruptedException e) {
-            System.err.println("ArgentumLogger (Blocking): Failed to send final batch payload: " + e.getMessage());
+            System.err.println("ArgentumLogger (Blocking): Failed to send batch payload: " + e.getMessage());
             Thread.currentThread().interrupt();
         }
     }
