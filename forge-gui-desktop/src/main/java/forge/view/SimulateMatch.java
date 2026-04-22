@@ -183,7 +183,6 @@ public class SimulateMatch {
         } catch (Exception e) {
             e.printStackTrace();
         } finally {
-
             if (sw.isStarted()) {
                 sw.stop();
             }
@@ -193,16 +192,16 @@ public class SimulateMatch {
             if (g1.getArgentumLogger() != null) {
                 g1.getArgentumLogger().flushAllStates();
             }
-        }
-         try {
+            
+            // THIS IS THE FIX: The try/catch for the delay is now correctly inside the 'finally' block.
+            try {
                 System.out.println("Match complete. Waiting for final logs to transmit...");
-                // Pausing the main thread for 5 seconds.
-                Thread.sleep(5000); 
+                Thread.sleep(5000);
             } catch (InterruptedException e) {
                 System.err.println("Final delay was interrupted.");
-                Thread.currentThread().interrupt(); // Preserve the interrupted status
+                Thread.currentThread().interrupt();
             }
-        }
+        } // This closing brace for 'finally' was mismatched.
         // Output is now handled by JsonGameListener. This just prints the final result.
         if (g1.getOutcome().isDraw()) {
             System.out.printf("JSON_GAME_RESULT:{\"winner\":null,\"duration\":%d}%n", sw.getTime());
