@@ -45,6 +45,20 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
         return dto;
     }
 
+     @Override
+    public Map<String, Object> visit(GameEventPlayerDamaged event) {
+        Map<String, Object> dto = new LinkedHashMap<>();
+        PlayerView target = event.target();
+        
+        dto.put("type", "lifeChanged");
+        dto.put("playerId", String.valueOf(target.getId()));
+        dto.put("oldLife", target.getLife() + event.amount()); // Calculate life before damage
+        dto.put("newLife", target.getLife());
+        dto.put("change", -event.amount());
+        dto.put("description", target.getName() + " takes " + event.amount() + " damage.");
+        return dto;
+    }
+    
     @Override
     public Map<String, Object> visit(GameEventPlayerDamaged event) {
         Map<String, Object> dto = new LinkedHashMap<>();
