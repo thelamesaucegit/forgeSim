@@ -19,6 +19,7 @@ import forge.game.zone.MagicStack;
 import forge.game.zone.Zone;
 import forge.game.zone.ZoneType;
 
+import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
@@ -103,14 +104,22 @@ public class ArgentumStateLogger {
         snapshotBatch.clear();
         blueprintSnapshot = null;
         String jsonPayload = gson.toJson(batchToSend);
-        sendBatchToServer(matchId, jsonPayload);
+        sendBatchToServerAsync(matchId, jsonPayload);
     }
 
     public void flushAllStates() {
         if (this.game.isGameOver()) {
             createSnapshot("GAME_OVER");
         }
-        flushBatch();
+        
+        if (snapshotBatch.isEmpty()) return;
+        String matchId = this.game.getMatch().getMatchId();
+        List<Object> batchToSend = new ArrayList<>(snapshotBatch);
+        snapshotBatch.clear();
+        blueprintSnapshot = null;
+        String jsonPayload = gson.toJson(batchToSend);
+        
+        sendBatchToServerBlocking(matchId, jsonPayload);
     }
     
     private static String getLogEndpointUrl() {
@@ -118,7 +127,7 @@ public class ArgentumStateLogger {
         return (publicUrl != null && !publicUrl.isEmpty()) ? publicUrl : "http://localhost:3000/api/log-replay";
     }
 
-    private static void sendBatchToServer(String matchId, String jsonPayload) {
+    private static void sendBatchToServerAsync(String matchId, String jsonPayload) {
         if (matchId == null || jsonPayload == null || jsonPayload.equals("[]")) return;
         try {
             HttpRequest request = HttpRequest.newBuilder()
@@ -131,15 +140,39 @@ public class ArgentumStateLogger {
             httpClient.sendAsync(request, HttpResponse.BodyHandlers.ofString())
                 .thenAccept(response -> {
                     if (response.statusCode() != 200) {
-                        System.err.println("ArgentumLogger: Non-200 on batch flush (" + response.statusCode() + "): " + response.body());
+                        System.err.println("ArgentumLogger (Async): Non-200 on batch flush (" + response.statusCode() + "): " + response.body());
                     }
                 })
                 .exceptionally(ex -> {
-                    System.err.println("ArgentumLogger: Exception during async HTTP send: " + ex.getMessage());
+                    System.err.println("ArgentumLogger (Async): Exception during HTTP send: " + ex.getMessage());
                     return null;
                 });
         } catch (Exception e) {
-            System.err.println("ArgentumLogger: Failed to send batch payload: " + e.getMessage());
+            System.err.println("ArgentumLogger (Async): Failed to send batch payload: " + e.getMessage());
+        }
+    }
+
+    private static void sendBatchToServerBlocking(String matchId, String jsonPayload) {
+        if (matchId == null || jsonPayload == null || jsonPayload.equals("[]")) return;
+        try {
+            HttpRequest request = HttpRequest.newBuilder()
+                .uri(URI.create(getLogEndpointUrl()))
+                .header("Content-Type", "application/json")
+                .header("X-Match-ID", matchId)
+                .timeout(Duration.ofSeconds(60))
+                .POST(HttpRequest.BodyPublishers.ofString(jsonPayload))
+                .build();
+            
+            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
+            
+            if (response.statusCode() != 200) {
+                System.err.println("ArgentumLogger (Blocking): Non-200 on final flush (" + response.statusCode() + "): " + response.body());
+            } else {
+                System.out.println("ArgentumLogger (Blocking): Final batch flushed successfully.");
+            }
+        } catch (IOException | InterruptedException e) {
+            System.err.println("ArgentumLogger (Blocking): Failed to send final batch payload: " + e.getMessage());
+            Thread.currentThread().interrupt();
         }
     }
 
