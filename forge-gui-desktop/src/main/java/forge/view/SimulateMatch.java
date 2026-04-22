@@ -171,8 +171,7 @@ public class SimulateMatch {
         sw.start();
         final Game g1 = mc.createGame();
 
-        // --- FIX: Use the correct method to subscribe our listener to the game's event bus ---
-       // g1.subscribeToEvents(new JsonGameListener());
+        g1.subscribeToEvents(new JsonGameListener());
 
         try {
             TimeLimitedCodeBlock.runWithTimeout(() -> {
