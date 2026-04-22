@@ -25,7 +25,9 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
         SpellAbilityView sa = event.sa();
         Map<String, Object> dto = new LinkedHashMap<>();
 
-        if (sa.isAbility()) {
+        // THIS IS THE FIX: The isSpell() method exists on SpellAbilityView.
+        // If it's NOT a spell, it must be an ability.
+        if (!sa.isSpell()) {
             dto.put("type", "abilityActivated");
             dto.put("sourceId", String.valueOf(sa.getHostCard().getId()));
             dto.put("sourceName", sa.getHostCard().getName());
@@ -41,7 +43,6 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
         return dto;
     }
 
-    // THIS IS THE FIX: The single, correct implementation of this method.
     @Override
     public Map<String, Object> visit(GameEventPlayerDamaged event) {
         Map<String, Object> dto = new LinkedHashMap<>();
@@ -49,37 +50,17 @@ public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Obj
         
         dto.put("type", "lifeChanged");
         dto.put("playerId", String.valueOf(target.getId()));
-        dto.put("oldLife", target.getLife() + event.amount()); // Calculate life before damage
+        dto.put("oldLife", target.getLife() + event.amount());
         dto.put("newLife", target.getLife());
         dto.put("change", -event.amount());
         dto.put("description", target.getName() + " takes " + event.amount() + " damage.");
         return dto;
     }
-
-    // The other visit methods from the original file remain, returning null
-    // as they do not generate log entries for the new system.
-    @Override
-    public Map<String, Object> visit(GameEventTurnPhase event) {
-        return null; 
-    }
-
-    @Override
-    public Map<String, Object> visit(GameEventCardChangeZone event) {
-        return null; 
-    }
-
-    @Override
-    public Map<String, Object> visit(GameEventAttackersDeclared event) {
-        return null; 
-    }
-
-    @Override
-    public Map<String, Object> visit(GameEventBlockersDeclared event) {
-        return null; 
-    }
-
-    @Override
-    public Map<String, Object> visit(GameEventCombatEnded event) {
-        return null;
-    }
+    
+    // Unused visit methods...
+    @Override public Map<String, Object> visit(GameEventTurnPhase event) { return null; }
+    @Override public Map<String, Object> visit(GameEventCardChangeZone event) { return null; }
+    @Override public Map<String, Object> visit(GameEventAttackersDeclared event) { return null; }
+    @Override public Map<String, Object> visit(GameEventBlockersDeclared event) { return null; }
+    @Override public Map<String, Object> visit(GameEventCombatEnded event) { return null; }
 }
