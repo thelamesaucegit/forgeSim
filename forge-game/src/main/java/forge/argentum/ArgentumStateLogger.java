@@ -61,6 +61,12 @@ public class ArgentumStateLogger {
             createSnapshot(event.getClass().getSimpleName());
         }
     }
+     @Subscribe
+    public void onGameOver(GameEventGameOutcome event) {
+        // When the game outcome is determined, force one final snapshot.
+        // This will capture the state that led to the game ending.
+        createSnapshot("GAME_OVER");
+    }
 
     private boolean shouldCreateSnapshot(GameEvent event) {
         return event instanceof GameEventTurnPhase ||
@@ -107,19 +113,10 @@ public class ArgentumStateLogger {
         sendBatchToServerAsync(matchId, jsonPayload);
     }
 
-    public void flushAllStates() {
-        if (this.game.isGameOver()) {
-            createSnapshot("GAME_OVER");
-        }
-        
-        if (snapshotBatch.isEmpty()) return;
-        String matchId = this.game.getMatch().getMatchId();
-        List<Object> batchToSend = new ArrayList<>(snapshotBatch);
-        snapshotBatch.clear();
-        blueprintSnapshot = null;
-        String jsonPayload = gson.toJson(batchToSend);
-        
-        sendBatchToServerBlocking(matchId, jsonPayload);
+       public void flushAllStates() {
+        // This method is now simpler. It just sends whatever is left in the batch.
+        // The crucial "GAME_OVER" snapshot is now created by the onGameOver event handler.
+        flushBatch();
     }
     
     private static String getLogEndpointUrl() {
