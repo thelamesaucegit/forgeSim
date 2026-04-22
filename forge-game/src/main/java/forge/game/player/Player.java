@@ -543,7 +543,14 @@ public class Player extends GameEntity implements Comparable<Player> {
         } else {
             game.fireEvent(new GameEventPlayerLivesChanged(this, oldLife, life));
         }
-
+if (life <= 0) {
+            if (getGame().getArgentumLogger() != null) {
+                // Take a snapshot immediately after the life total has changed,
+                // but before the state-based action check declares the game over.
+                System.out.println("Player life <= 0. Forcing mid-action snapshot.");
+                getGame().getArgentumLogger().createSnapshot("LethalLifeLoss");
+            }
+        }
         boolean firstLost = lifeLostThisTurn == 0;
         lifeLostThisTurn += toLose;
 

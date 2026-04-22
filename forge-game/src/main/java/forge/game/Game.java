@@ -575,42 +575,23 @@ private boolean isCopy = false;
         return age == GameStage.GameOver;
     }
 
-    public synchronized void setGameOver(GameEndReason reason) {
-         if (this.age == GameStage.GameOver) {
-            return;
+     public synchronized void setGameOver(GameEndReason reason) {
+        for (Player p : allPlayers) {
+            p.clearController();
         }
-
-        // Set the state FIRST to prevent other threads from re-entering this block.
-        this.age = GameStage.GameOver;
-
-        // Immediately create the outcome object based on the current state.
+        age = GameStage.GameOver;
         for (Player p : getPlayers()) {
             p.onGameOver();
         }
         final GameOutcome result = new GameOutcome(reason, getRegisteredPlayers());
         result.setTurnsPlayed(getPhaseHandler().getTurn());
-        this.outcome = result;
-        
-        // This is the crucial step. Before firing any events or allowing the
-        // game loop to terminate, we make a DIRECT, SYNCHRONOUS call to the logger.
-        if (this.argentumLogger != null) {
-            System.out.println("GAME OVER DETECTED. Forcing final Argentum snapshot and flush.");
-            // This method will create the final snapshot AND block until the HTTP request is complete.
-            this.argentumLogger.forceFinalSnapshotAndFlush();
-        }
-
-        // Now that logging is guaranteed to be complete, proceed with the rest of the shutdown.
-        for (Player p : allPlayers) {
-            p.clearController();
-        }
-
+        outcome = result;
         if (maingame == null) {
             match.addGamePlayed(this);
         }
-
         view.updateGameOver(this);
-
-        // Fire the event last for any other non-critical listeners.
+        
+        // Fire the event for any other listeners.
         if (maingame == null) {
             fireEvent(new GameEventGameOutcome(result, match.getOutcomes()));
         }
