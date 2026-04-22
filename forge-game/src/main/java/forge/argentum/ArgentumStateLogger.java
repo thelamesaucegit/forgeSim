@@ -53,6 +53,7 @@ public class ArgentumStateLogger {
 
     @Subscribe
     public void onGameEvent(GameEvent event) {
+       if (game.isGameOver()) return;
         Map<String, Object> eventDto = event.visit(logVisitor);
         if (eventDto != null) {
             gameLogEvents.add(eventDto);
@@ -60,6 +61,27 @@ public class ArgentumStateLogger {
         if (shouldCreateSnapshot(event)) {
             createSnapshot(event.getClass().getSimpleName());
         }
+    }
+
+    public void forceFinalSnapshotAndFlush() {
+        System.out.println("forceFinalSnapshotAndFlush called.");
+        // 1. Create one last snapshot representing the game-ending state.
+        createSnapshot("GAME_OVER_FORCED");
+        
+        // 2. Immediately flush whatever is in the batch.
+        if (snapshotBatch.isEmpty()) {
+            System.out.println("Final batch is empty. Nothing to flush.");
+            return;
+        }
+        
+        String matchId = this.game.getMatch().getMatchId();
+        List<Object> finalBatch = new ArrayList<>(snapshotBatch);
+        snapshotBatch.clear();
+        String jsonPayload = gson.toJson(finalBatch);
+        
+        System.out.println("Flushing final batch of size " + finalBatch.size() + " for match " + matchId);
+        // 3. Use the blocking send method to guarantee delivery before the app exits.
+        sendBatchToServerBlocking(matchId, jsonPayload);
     }
      @Subscribe
     public void onGameOver(GameEventGameOutcome event) {
@@ -107,22 +129,20 @@ public class ArgentumStateLogger {
         }
     }
 
-    private void flushBatch() {
+       private void flushBatch() {
         if (snapshotBatch.isEmpty()) return;
         String matchId = this.game.getMatch().getMatchId();
         List<Object> batchToSend = new ArrayList<>(snapshotBatch);
         snapshotBatch.clear();
         blueprintSnapshot = null;
         String jsonPayload = gson.toJson(batchToSend);
-        System.out.println("Flushing batch of size " + batchToSend.size() + " for match " + matchId);
-        sendBatchToServerBlocking(matchId, jsonPayload);
+        sendBatchToServerBlocking(matchId, jsonPayload); // Using blocking for all batches for simplicity and reliability
     }
 
-       public void flushAllStates() {
-        System.out.println("Final flushAllStates called from SimulateMatch.");
-        flushBatch();
+   public void flushAllStates() {
+        System.out.println("flushAllStates called from SimulateMatch. Flushing any remaining items.");
+        flushBatch(); // flush any stragglers, though there shouldn't be any.
     }
-    
     
     private static String getLogEndpointUrl() {
         String publicUrl = System.getenv("LOG_ENDPOINT_HOST");

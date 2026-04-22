@@ -576,32 +576,30 @@ private boolean isCopy = false;
     }
 
     public synchronized void setGameOver(GameEndReason reason) {
-         if (isGameOver()) { // Prevent this from running multiple times
+         if (this.age == GameStage.GameOver) {
             return;
         }
 
-        // First, mark the game as being over conceptually
-        age = GameStage.GameOver;
-        
+        // Set the state FIRST to prevent other threads from re-entering this block.
+        this.age = GameStage.GameOver;
+
+        // Immediately create the outcome object based on the current state.
         for (Player p : getPlayers()) {
             p.onGameOver();
         }
-
         final GameOutcome result = new GameOutcome(reason, getRegisteredPlayers());
         result.setTurnsPlayed(getPhaseHandler().getTurn());
-        outcome = result;
+        this.outcome = result;
         
-        // Before we fire any events or update any external views,
-        // we must synchronously create and send the final state.
+        // This is the crucial step. Before firing any events or allowing the
+        // game loop to terminate, we make a DIRECT, SYNCHRONOUS call to the logger.
         if (this.argentumLogger != null) {
-            System.out.println("Game is over. Forcing final Argentum snapshot.");
-            // This is a direct, synchronous call to our logger.
-            this.argentumLogger.forceFinalSnapshot("GAME_OVER_IMMEDIATE");
-            // The application will block here until the logger is done.
+            System.out.println("GAME OVER DETECTED. Forcing final Argentum snapshot and flush.");
+            // This method will create the final snapshot AND block until the HTTP request is complete.
+            this.argentumLogger.forceFinalSnapshotAndFlush();
         }
 
-        // Now that the final state is guaranteed to be processing,
-        // we can proceed with the rest of the game-over logic.
+        // Now that logging is guaranteed to be complete, proceed with the rest of the shutdown.
         for (Player p : allPlayers) {
             p.clearController();
         }
@@ -612,7 +610,7 @@ private boolean isCopy = false;
 
         view.updateGameOver(this);
 
-        // Fire the event for any other listeners (like the old logger).
+        // Fire the event last for any other non-critical listeners.
         if (maingame == null) {
             fireEvent(new GameEventGameOutcome(result, match.getOutcomes()));
         }
