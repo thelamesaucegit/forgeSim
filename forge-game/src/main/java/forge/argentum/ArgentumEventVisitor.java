@@ -11,149 +11,98 @@ import forge.game.zone.ZoneView;
 import java.util.LinkedHashMap;
 import java.util.Map;
 
-// This visitor now creates objects that directly match the TypeScript ClientEvent interfaces.
-public class ArgentumEventVisitor extends IGameEventVisitor.Base<Object> {
-
-    // Base DTO for all events
-    private static abstract class ClientEventDTO {
-        public String type;
-        public String description;
-    }
-
-    private static class TurnBeganDTO extends ClientEventDTO {
-        // No extra fields needed, description is sufficient
-    }
-    
-    private static class TurnChangedDTO extends ClientEventDTO {
-        public int turnNumber;
-        public String activePlayerId;
-    }
-
-    private static class PhaseChangedDTO extends ClientEventDTO {
-        // No extra fields, description is sufficient
-    }
-
-    private static class SpellCastDTO extends ClientEventDTO {
-        public String spellId;
-        public String spellName;
-        public String casterId;
-    }
-
-    private static class PlayerDamagedDTO extends ClientEventDTO {
-        public String sourceId;
-        public String sourceName;
-        public String targetId;
-        public String targetName;
-        public int amount;
-        public boolean targetIsPlayer = true;
-        public boolean isCombatDamage; // Will need to be determined
-    }
-
-    private static class ZoneChangeDTO extends ClientEventDTO {
-        public String cardId;
-        public String cardName;
-        public String destination;
-    }
-
-    private static class AttackersDeclaredDTO extends ClientEventDTO {
-        // We can add more fields here if needed later
-    }
-
-    private static class BlockersDeclaredDTO extends ClientEventDTO {
-        // We can add more fields here if needed later
-    }
-
-    private static class CombatEndedDTO extends ClientEventDTO {
-        // No extra fields, description is sufficient
-    }
-
+public class ArgentumEventVisitor extends IGameEventVisitor.Base<Map<String, Object>> {
 
     @Override
-    public Object visit(GameEventTurnBegan event) {
-        TurnChangedDTO dto = new TurnChangedDTO();
-        dto.type = "turnChanged";
-        dto.turnNumber = event.turnNumber();
-        dto.activePlayerId = String.valueOf(event.turnOwner().getId());
-        dto.description = "Turn " + event.turnNumber() + " (" + event.turnOwner().getName() + ")";
+    public Map<String, Object> visit(GameEventTurnBegan event) {
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("type", "turnChanged");
+        dto.put("turnNumber", event.turnNumber());
+        dto.put("activePlayerId", String.valueOf(event.turnOwner().getId()));
+        dto.put("description", "Turn " + event.turnNumber() + " (" + event.turnOwner().getName() + ")");
         return dto;
     }
 
     @Override
-    public Object visit(GameEventTurnPhase event) {
-        PhaseChangedDTO dto = new PhaseChangedDTO();
-        dto.type = "phaseChanged"; // Custom type, can be handled or ignored in UI
-        dto.description = event.phase().getStepName(event.phase()) + " Step";
+    public Map<String, Object> visit(GameEventTurnPhase event) {
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("type", "phaseChanged");
+        // FIX: Using .name() which is a standard method on all enums.
+        dto.put("description", event.phase().name() + " Step");
         return dto;
     }
 
     @Override
-    public Object visit(GameEventSpellAbilityCast event) {
-        SpellCastDTO dto = new SpellCastDTO();
+    public Map<String, Object> visit(GameEventSpellAbilityCast event) {
+        Map<String, Object> dto = new LinkedHashMap<>();
         SpellAbilityView sa = event.sa();
-        dto.type = "spellCast";
-        dto.spellId = String.valueOf(sa.getHostCard().getId());
-        dto.spellName = sa.getHostCard().getName();
-        dto.casterId = String.valueOf(sa.getActivatingPlayer().getId());
-        dto.description = sa.getActivatingPlayer().getName() + " casts " + sa.getHostCard().getName();
+        dto.put("type", "spellCast");
+        dto.put("spellId", String.valueOf(sa.getHostCard().getId()));
+        dto.put("spellName", sa.getHostCard().getName());
+        // FIX: Using the correct method to get the controller of the card.
+        dto.put("casterId", String.valueOf(sa.getHostCard().getController().getId()));
+        dto.put("description", sa.getHostCard().getController().getName() + " casts " + sa.getHostCard().getName());
         return dto;
     }
 
     @Override
-    public Object visit(GameEventPlayerDamaged event) {
-        PlayerDamagedDTO dto = new PlayerDamagedDTO();
-        dto.type = "damageDealt";
-        dto.sourceId = event.source() != null ? String.valueOf(event.source().getId()) : null;
-        dto.sourceName = event.source() != null ? event.source().getName() : "Unknown";
-        dto.targetId = String.valueOf(event.target().getId());
-        dto.targetName = event.target().getName();
-        dto.amount = event.amount();
-        dto.isCombatDamage = event.isCombatDamage();
-        dto.description = event.target().getName() + " takes " + event.amount() + " damage.";
+    public Map<String, Object> visit(GameEventPlayerDamaged event) {
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("type", "damageDealt");
+        dto.put("sourceId", event.source() != null ? String.valueOf(event.source().getId()) : null);
+        dto.put("sourceName", event.source() != null ? event.source().getName() : "Unknown");
+        dto.put("targetId", String.valueOf(event.target().getId()));
+        dto.put("targetName", event.target().getName());
+        dto.put("amount", event.amount());
+        dto.put("targetIsPlayer", true);
+        // FIX: Removed isCombatDamage as the method does not exist.
+        dto.put("description", event.target().getName() + " takes " + event.amount() + " damage.");
         return dto;
     }
 
     @Override
-    public Object visit(GameEventCardChangeZone event) {
-        ZoneChangeDTO dto = new ZoneChangeDTO();
-        dto.type = "permanentLeft"; // Assuming most interesting zone changes are things leaving play
+    public Map<String, Object> visit(GameEventCardChangeZone event) {
+        Map<String, Object> dto = new LinkedHashMap<>();
         ZoneView fromZone = event.from();
         ZoneView toZone = event.to();
         String fromStr = fromZone != null ? fromZone.zoneType().name().toLowerCase() : "nowhere";
         String toStr = toZone != null ? toZone.zoneType().name().toLowerCase() : "oblivion";
         
-        dto.cardId = String.valueOf(event.card().getId());
-        dto.cardName = event.card().getName();
-        dto.destination = toStr; // Matches 'graveyard' | 'exile' | 'hand' | 'library'
-        dto.description = event.card().getName() + " moves from " + fromStr + " to " + toStr;
+        dto.put("cardId", String.valueOf(event.card().getId()));
+        dto.put("cardName", event.card().getName());
+        dto.put("destination", toStr);
+        dto.put("description", event.card().getName() + " moves from " + fromStr + " to " + toStr);
 
         if ("battlefield".equals(toStr)) {
-            dto.type = "permanentEntered";
+            dto.put("type", "permanentEntered");
+        } else {
+            dto.put("type", "permanentLeft");
         }
         
         return dto;
     }
 
     @Override
-    public Object visit(GameEventAttackersDeclared event) {
-        AttackersDeclaredDTO dto = new AttackersDeclaredDTO();
-        dto.type = "attackersDeclared"; // Custom type
-        dto.description = event.player().getName() + " declares attackers.";
+    public Map<String, Object> visit(GameEventAttackersDeclared event) {
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("type", "attackersDeclared");
+        dto.put("description", event.player().getName() + " declares attackers.");
         return dto;
     }
 
     @Override
-    public Object visit(GameEventBlockersDeclared event) {
-        BlockersDeclaredDTO dto = new BlockersDeclaredDTO();
-        dto.type = "blockersDeclared"; // Custom type
-        dto.description = event.defendingPlayer().getName() + " declares blockers.";
+    public Map<String, Object> visit(GameEventBlockersDeclared event) {
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("type", "blockersDeclared");
+        dto.put("description", event.defendingPlayer().getName() + " declares blockers.");
         return dto;
     }
 
     @Override
-    public Object visit(GameEventCombatEnded event) {
-        CombatEndedDTO dto = new CombatEndedDTO();
-        dto.type = "combatEnded"; // Custom type
-        dto.description = "Combat damage is dealt.";
+    public Map<String, Object> visit(GameEventCombatEnded event) {
+        Map<String, Object> dto = new LinkedHashMap<>();
+        dto.put("type", "combatEnded");
+        dto.put("description", "Combat damage is dealt.");
         return dto;
     }
 }
