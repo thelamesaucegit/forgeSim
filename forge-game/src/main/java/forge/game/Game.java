@@ -576,31 +576,48 @@ private boolean isCopy = false;
     }
 
     public synchronized void setGameOver(GameEndReason reason) {
-        for (Player p : allPlayers) {
-            p.clearController();
+         if (isGameOver()) { // Prevent this from running multiple times
+            return;
         }
-        age = GameStage.GameOver;
 
+        // First, mark the game as being over conceptually
+        age = GameStage.GameOver;
+        
         for (Player p : getPlayers()) {
             p.onGameOver();
         }
 
         final GameOutcome result = new GameOutcome(reason, getRegisteredPlayers());
         result.setTurnsPlayed(getPhaseHandler().getTurn());
-
         outcome = result;
+        
+        // Before we fire any events or update any external views,
+        // we must synchronously create and send the final state.
+        if (this.argentumLogger != null) {
+            System.out.println("Game is over. Forcing final Argentum snapshot.");
+            // This is a direct, synchronous call to our logger.
+            this.argentumLogger.forceFinalSnapshot("GAME_OVER_IMMEDIATE");
+            // The application will block here until the logger is done.
+        }
+
+        // Now that the final state is guaranteed to be processing,
+        // we can proceed with the rest of the game-over logic.
+        for (Player p : allPlayers) {
+            p.clearController();
+        }
+
         if (maingame == null) {
             match.addGamePlayed(this);
         }
 
         view.updateGameOver(this);
 
-        // The log shall listen to events and generate text internally
+        // Fire the event for any other listeners (like the old logger).
         if (maingame == null) {
             fireEvent(new GameEventGameOutcome(result, match.getOutcomes()));
         }
-
     }
+
 
     public Zone getZoneOf(final Card card) {
         return card == null ? null : card.getLastKnownZone();
