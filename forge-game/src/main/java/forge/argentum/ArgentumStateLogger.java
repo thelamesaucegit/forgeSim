@@ -215,24 +215,100 @@ public class ArgentumStateLogger {
         return snapshot;
     }
     
-    private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) { /* Implementation from prompt */ }
-    private static ClientZone createClientZone(Zone zone) { /* Implementation from prompt */ }
-    private static ClientPlayer createClientPlayer(Player player) { /* Implementation from prompt */ }
-    private static CombatState createCombatState(Combat combat) { /* Implementation from prompt */ }
+    // --- THIS IS THE FIX: Implementing the missing methods ---
 
-    // --- THIS IS THE FIX: The full implementation of the StateDiffer class ---
+    private static ClientCard createClientCard(Card card, Combat combat, MagicStack stack) {
+        ClientCard cc = new ClientCard();
+        cc.entityId = String.valueOf(card.getId());
+        cc.name = card.getName();
+        cc.cardTypes = card.getType().getCoreTypes().stream().map(Object::toString).collect(Collectors.toList());
+        cc.isTapped = card.isTapped();
+        cc.isAttacking = combat != null && combat.isAttacking(card);
+        cc.isBlocking = combat != null && combat.isBlocking(card);
+        cc.power = card.isCreature() ? card.getNetPower() : null;
+        cc.toughness = card.isCreature() ? card.getNetToughness() : null;
+        cc.damage = card.getDamage();
+        cc.attachedTo = card.isAttachedToEntity() ? String.valueOf(card.getAttachedTo().getId()) : null;
+        cc.targets = new ArrayList<>();
+        if (card.getZone() != null && card.getZone().getZoneType() == ZoneType.Stack) {
+            for (SpellAbilityStackInstance si : stack) {
+                if (si.getSourceCard().equals(card)) {
+                    SpellAbility sa = si.getSpellAbility();
+                    if (sa.usesTargeting()) {
+                        TargetChoices targets = sa.getTargets();
+                        if (targets != null) {
+                            for (GameObject target : targets) {
+                                TargetInfo ti = new TargetInfo();
+                                if (target instanceof Card) {
+                                    ti.entityId = String.valueOf(((Card) target).getId());
+                                    ti.type = "Card";
+                                } else if (target instanceof Player) {
+                                    ti.entityId = String.valueOf(((Player) target).getId());
+                                    ti.type = "Player";
+                                }
+                                cc.targets.add(ti);
+                            }
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        return cc;
+    }
+
+    private static ClientZone createClientZone(Zone zone) {
+        ClientZone cz = new ClientZone();
+        ZoneId zoneIdObject = new ZoneId();
+        zoneIdObject.zoneType = zone.getZoneType().name();
+        String ownerId = zone.getPlayer() != null ? String.valueOf(zone.getPlayer().getId()) : "game";
+        zoneIdObject.ownerId = ownerId;
+        cz.zoneId = zoneIdObject;
+        cz.cardIds = new ArrayList<>();
+        for (Card card : zone.getCards()) {
+            cz.cardIds.add(String.valueOf(card.getId()));
+        }
+        cz.size = cz.cardIds.size();
+        cz.isVisible = true;
+        return cz;
+    }
+
+    private static ClientPlayer createClientPlayer(Player player) {
+        ClientPlayer cp = new ClientPlayer();
+        cp.playerId = String.valueOf(player.getId());
+        cp.name = player.getName();
+        cp.life = player.getLife();
+        return cp;
+    }
+
+    private static CombatState createCombatState(Combat combat) {
+        if (combat == null) { return null; }
+        CombatState cs = new CombatState();
+        cs.attackers = new ArrayList<>();
+        cs.groups = new ArrayList<>();
+        for (Card attacker : combat.getAttackers()) {
+            cs.attackers.add(String.valueOf(attacker.getId()));
+            CombatGroup group = new CombatGroup();
+            group.attackerId = String.valueOf(attacker.getId());
+            group.blockers = new ArrayList<>();
+            for (Card blocker : combat.getBlockers(attacker)) {
+                group.blockers.add(String.valueOf(blocker.getId()));
+            }
+            cs.groups.add(group);
+        }
+        return cs;
+    }
+
     private static class StateDiffer {
         public static SpectatorStateDiff diff(SpectatorStateUpdate blueprint, SpectatorStateUpdate current) {
             SpectatorStateDiff diff = new SpectatorStateDiff();
             diff.gameState = new SpectatorStateDiff.GameStateDiff();
 
-            // Top-level diffs
             if (!Objects.equals(blueprint.currentPhase, current.currentPhase)) diff.currentPhase = current.currentPhase;
             if (!Objects.equals(blueprint.activePlayerId, current.activePlayerId)) diff.activePlayerId = current.activePlayerId;
             if (!Objects.equals(blueprint.priorityPlayerId, current.priorityPlayerId)) diff.priorityPlayerId = current.priorityPlayerId;
             if (!gson.toJson(blueprint.combat).equals(gson.toJson(current.combat))) diff.combat = current.combat;
 
-            // Nested gameState diffs
             SpectatorStateDiff.GameStateDiff gsd = diff.gameState;
             if (!Objects.equals(blueprint.gameState.currentPhase, current.gameState.currentPhase)) gsd.currentPhase = current.gameState.currentPhase;
             if (!Objects.equals(blueprint.gameState.currentStep, current.gameState.currentStep)) gsd.currentStep = current.gameState.currentStep;
@@ -244,8 +320,6 @@ public class ArgentumStateLogger {
             if (!gson.toJson(blueprint.gameState.combat).equals(gson.toJson(current.gameState.combat))) gsd.combat = current.gameState.combat;
             
             gsd.gameLog = current.gameState.gameLog;
-
-            // Diff Cards
             gsd.cards = new HashMap<>();
             for (Map.Entry<String, ClientCard> currentEntry : current.gameState.cards.entrySet()) {
                 String cardId = currentEntry.getKey();
@@ -256,7 +330,6 @@ public class ArgentumStateLogger {
                 }
             }
 
-            // Diff Zones
             gsd.zones = new HashMap<>();
             for (ClientZone currentZone : current.gameState.zones) {
                 String zoneIdentifier = getZoneIdentifier(currentZone.zoneId);
@@ -266,7 +339,6 @@ public class ArgentumStateLogger {
                 }
             }
             
-            // Diff Players
             gsd.players = new HashMap<>();
             for (ClientPlayer currentPlayer : current.gameState.players) {
                 String playerId = currentPlayer.playerId;
@@ -275,7 +347,6 @@ public class ArgentumStateLogger {
                     gsd.players.put(playerId, currentPlayer);
                 }
             }
-
             return diff;
         }
 
