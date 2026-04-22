@@ -1,3 +1,5 @@
+//forge-game/src/main/java/forge/game/GameLogVerbosity.java
+
 package forge.game;
 
 import java.util.EnumSet;
