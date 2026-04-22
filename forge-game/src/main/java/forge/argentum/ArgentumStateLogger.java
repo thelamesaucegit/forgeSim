@@ -33,13 +33,13 @@ import java.util.stream.Collectors;
 
 public class ArgentumStateLogger {
 
-    private final Game game;
+private final Game game;
     private final List<Object> snapshotBatch = new ArrayList<>();
     private SpectatorStateUpdate blueprintSnapshot = null;
-    private final List<Map<String, Object>> gameLogEvents = new ArrayList<>();
+    // THIS IS THE FIX: The list now holds generic Objects, not Maps.
+    private final List<Object> gameLogEvents = new ArrayList<>();
     private final ArgentumEventVisitor logVisitor = new ArgentumEventVisitor();
 
-    private static final int BATCH_SIZE = 50; // 1 blueprint + 49 diffs
     private static final Gson gson = new GsonBuilder().create();
     private static final HttpClient httpClient = HttpClient.newBuilder()
             .version(HttpClient.Version.HTTP_1_1)
@@ -50,9 +50,10 @@ public class ArgentumStateLogger {
         this.game = game;
     }
 
-    @Subscribe
+  @Subscribe
     public void onGameEvent(GameEvent event) {
-        Map<String, Object> eventDto = event.visit(logVisitor);
+        // THIS IS THE FIX: The returned DTO is now an Object.
+        Object eventDto = event.visit(logVisitor);
         if (eventDto != null) {
             gameLogEvents.add(eventDto);
         }
