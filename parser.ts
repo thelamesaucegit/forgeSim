@@ -92,7 +92,7 @@ function applyJsonEvent(
         case "TURN_BEGAN":
             if (event.turnOwner?.name) {
                 state.turn = event.turnNumber!;
-                state.activePlayer = replaceName(event.turnOwner.name);
+                state.activePlayer = replaceName(event.turnOwner.name) || state.activePlayer;
                 
                 const activePlayerState = state.players[state.activePlayer];
                 if (activePlayerState) {
