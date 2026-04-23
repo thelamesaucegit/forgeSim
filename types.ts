@@ -1,3 +1,4 @@
+//types.ts 
 // Defines the structure for a single card in any zone.
 export interface Card {
   id: string;
