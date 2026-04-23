@@ -1,3 +1,5 @@
+//server.ts
+
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -55,7 +57,6 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
     }
 
     const { team1_name, team1_color, team1_seccolor, team2_name, team2_color, team2_seccolor } = matchData;
-    
     const firstState = rawGameStates[0];
     if (!firstState?.player1Name || !firstState?.player2Name) {
         console.warn("[ENRICH] Could not find raw player names in game states to replace.");
@@ -70,7 +71,8 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
         const newState = JSON.parse(JSON.stringify(state));
         
         if (newState.gameState?.players) {
-            newState.gameState.players.forEach((player: any) => {
+            // FIX: Iterate over the object values, not the object itself
+            Object.values(newState.gameState.players).forEach((player: any) => {
                 if (player.name === rawP1Name) {
                     player.name = team1_name;
                     player.theme = { primary: team1_color, secondary: team1_seccolor };
@@ -98,6 +100,7 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
     });
 }
 
+
 const getAiProfile = (info: string): string => {
     const match = info.match(/\(AI: (.*?)\)/);
     return match ? match[1] : 'Default';
@@ -105,7 +108,6 @@ const getAiProfile = (info: string): string => {
 
 async function spawnMatchProcess({ new: payload }: any) {
     const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_info, player2_info, team1_name, team2_name } = payload;
-    
     const profile1 = getAiProfile(player1_info);
     const profile2 = getAiProfile(player2_info);
     console.log(`[MATCH] Received: ${matchId} (${team1_name} (${profile1}) vs ${team2_name} (${profile2}))`);
@@ -123,7 +125,6 @@ async function spawnMatchProcess({ new: payload }: any) {
         child.on('close', async (code: number) => {
             console.log(`[MATCH] Complete: ${matchId} (Code: ${code})`);
             if (code !== 0) {
-                 await supabase.from('sim_matches').update({ status: 'sim_failed' }).eq('id', matchId);
                  return;
             }
 
@@ -133,29 +134,21 @@ async function spawnMatchProcess({ new: payload }: any) {
             const cardDictionary = await getCardDictionary(deck1_list + '\n' + deck2_list);
             const { gameStates: legacyGameStates, winner } = await postProcessLog(rawLog, team1_name, team2_name, deck1_list, deck2_list, cardDictionary);
             
-            if (!winner) { 
-                console.warn(`[PROCESS] No winner found for ${matchId} in legacy log.`);
-                // Don't return, still try to process argentum log.
-            } else {
+      if (winner) {
                 const finalLegacyReplay = processReplay(legacyGameStates);
-                const { error: legacyUpdateError } = await supabase
-                    .from('sim_matches')
-                    .update({ winner, game_states: finalLegacyReplay, status: 'processing' })
-                    .eq('id', matchId);
-
-                if (legacyUpdateError) {
-                    console.error(`[DB] Legacy replay/winner update error for ${matchId}:`, legacyUpdateError);
-                } else {
-                    console.log(`[DB] Legacy replay and winner saved for ${matchId}.`);
-                }
+                await supabase.from('sim_matches').update({ winner, game_states: finalLegacyReplay }).eq('id', matchId);
+                console.log(`[DB] Legacy replay and winner saved for ${matchId}.`);
+            } else {
+                console.warn(`[PROCESS] No winner found for ${matchId} in legacy log.`);
+                // If there's no winner, we still need to mark the match as complete.
+                await supabase.from('sim_matches').update({ winner: 'Draw' }).eq('id', matchId);
             }
-
+            
             // 2. Process new 'argentum_game_states' enrichment after a delay
             setTimeout(async () => {
                 const { data: match, error: fetchErr } = await supabase.from('sim_matches').select('argentum_game_states').eq('id', matchId).single();
                 if (fetchErr || !match?.argentum_game_states || (match.argentum_game_states as any[]).length === 0) {
                     console.error(`[ENRICH] Could not fetch argentum_game_states for match ${matchId}:`, fetchErr);
-                    await supabase.from('sim_matches').update({ status: 'processing_failed' }).eq('id', matchId);
                     return;
                 }
                 
@@ -164,10 +157,8 @@ async function spawnMatchProcess({ new: payload }: any) {
                 const { error: replayError } = await supabase.from('sim_matches').update({ argentum_game_states: enrichedStates }).eq('id', matchId);
                 if (replayError) {
                     console.error(`[DB] Enriched replay update error for ${matchId}:`, replayError);
-                    await supabase.from('sim_matches').update({ status: 'processing_failed' }).eq('id', matchId);
                 } else {
                     console.log(`[DB] Enriched replay successfully saved for ${matchId}.`);
-                    await supabase.from('sim_matches').update({ status: 'completed' }).eq('id', matchId);
                 }
             }, 5000);
 
