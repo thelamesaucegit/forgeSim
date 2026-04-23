@@ -75,7 +75,7 @@ async function spawnMatchProcess({ new: payload }: any) {
         child.on('close', async (code: number) => {
             console.log(`[MATCH] Complete: ${matchId} (Code: ${code})`);
             if (code !== 0) return;
-            const { gameStates, winner } = await postProcessLog(rawLog,  deck1_list, deck2_list, cardDictionary, team1_name, team2_name);
+            const { gameStates, winner } = await postProcessLog(rawLog, team1_name, team2_name, deck1_list, deck2_list, cardDictionary);
             if (!winner) { console.warn(`[PROCESS] No winner found for ${matchId}.`); return; }
             // Write winner first — small, fast, critical.
             const { error: winnerError } = await supabase
