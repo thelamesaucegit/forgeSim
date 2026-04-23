@@ -1,8 +1,12 @@
+//parser.ts
+
 import { GameState, Card, PlayerState, JsonEvent, CardLocation } from './types.js';
 import { parseZoneString, findPlayerNamesFromRawLog, findWinner } from './utils.js';
 
 export async function postProcessLog(
     rawLog: string, 
+     team1Name, // New parameter
+    team2Name,
     deck1Content: string, 
     deck2Content: string,
     cardDictionary: Map<string, string>
@@ -14,7 +18,7 @@ export async function postProcessLog(
         return { gameStates: [], winner: null };
     }
 
-    const initialState = getInitialState(player1, player2, deck1Content, deck2Content);
+    const initialState = getInitialState(team1Name, team2Name,deck1Content, deck2Content);
     const gameStates: GameState[] = [initialState];
     
     for (const line of lines) {
@@ -22,7 +26,7 @@ export async function postProcessLog(
             try {
                 const event: JsonEvent = JSON.parse(line.substring(11));
                 // Apply the event to the last known state to produce the next state.
-                const newState = applyJsonEvent(gameStates[gameStates.length - 1], event, cardDictionary);
+                const newState = applyJsonEvent(gameStates[gameStates.length - 1], event, cardDictionary, rawP1Name, rawP2Name, team1Name, team2Name);
                 gameStates.push(newState);
                 if (Object.values(newState.players).some(p => p.life <= 0)) break;
             } catch (e) {
@@ -31,7 +35,8 @@ export async function postProcessLog(
         }
     }
     
-    const winner = findWinner(lines, [player1, player2]);
+    const winner = findWinner(lines, [rawP1Name, rawP2Name]);
+    const winner = rawWinner === rawP1Name ? team1Name : rawWinner === rawP2Name ? team2Name : null;
     if (winner && gameStates.length > 0) {
         gameStates[gameStates.length - 1].winner = winner;
     }
@@ -57,14 +62,18 @@ const findCardAndZone = (state: GameState, cardId: string): CardLocation | null 
     return null;
 };
 
-function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: Map<string, string>): GameState {
+function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: Map<string, string>, rawP1Name, rawP2Name, team1Name, team2Name): GameState {
     const state: GameState = JSON.parse(JSON.stringify(prevState));
-
+const replaceName = (name) => {
+        if (name === rawP1Name) return team1Name;
+        if (name === rawP2Name) return team2Name;
+        return name;
+    };
     switch (event.type) {
         case "TURN_BEGAN":
             if (event.turnOwner?.name) {
                 state.turn = event.turnNumber!;
-                state.activePlayer = event.turnOwner.name;
+                state.activePlayer = replaceName(event.turnOwner.name);
                 const activePlayerState = state.players[state.activePlayer];
                 if (activePlayerState) {
                     activePlayerState.battlefield.forEach((c: Card) => { c.isTapped = false; });
@@ -77,8 +86,11 @@ function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: 
             break;
         
         case "PLAYER_DAMAGED":
-            if (event.player?.name && event.amount && state.players[event.player.name]) {
-                state.players[event.player.name].life -= event.amount;
+           if (event.player?.name) {
+                const correctName = replaceName(event.player.name);
+                if (state.players[correctName]) {
+                    state.players[correctName].life -= event.amount;
+                }
             }
             break;
 
