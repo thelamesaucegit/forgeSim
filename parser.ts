@@ -1,24 +1,28 @@
-//parser.ts
+// parser.ts
 
 import { GameState, Card, PlayerState, JsonEvent, CardLocation } from './types.js';
 import { parseZoneString, findPlayerNamesFromRawLog, findWinner } from './utils.js';
 
 export async function postProcessLog(
     rawLog: string, 
-     team1Name, // New parameter
-    team2Name,
+    team1Name: string, // Add explicit string type
+    team2Name: string, // Add explicit string type
     deck1Content: string, 
     deck2Content: string,
     cardDictionary: Map<string, string>
 ): Promise<{ gameStates: GameState[], winner: string | null }> {
     const lines = rawLog.split('\n');
-    const { player1, player2 } = findPlayerNamesFromRawLog(rawLog);
-    if (!player1 || !player2) {
+    
+    // These are the raw forge names, e.g., "Ai(1)-..."
+    const { player1: rawP1Name, player2: rawP2Name } = findPlayerNamesFromRawLog(rawLog);
+
+    if (!rawP1Name || !rawP2Name) {
         console.error("[PARSER] Could not identify players from log.");
         return { gameStates: [], winner: null };
     }
 
-    const initialState = getInitialState(team1Name, team2Name,deck1Content, deck2Content);
+    // Initial state uses the correct team names from the start
+    const initialState = getInitialState(team1Name, team2Name, deck1Content, deck2Content);
     const gameStates: GameState[] = [initialState];
     
     for (const line of lines) {
@@ -26,21 +30,26 @@ export async function postProcessLog(
             try {
                 const event: JsonEvent = JSON.parse(line.substring(11));
                 // Apply the event to the last known state to produce the next state.
+                // Pass all necessary names for mapping
                 const newState = applyJsonEvent(gameStates[gameStates.length - 1], event, cardDictionary, rawP1Name, rawP2Name, team1Name, team2Name);
                 gameStates.push(newState);
+                // Stop processing if a player has lost to avoid unnecessary work
                 if (Object.values(newState.players).some(p => p.life <= 0)) break;
             } catch (e) {
-                // Ignore malformed JSON lines.
+                // Ignore malformed JSON lines
             }
         }
     }
     
-    const winner = findWinner(lines, [rawP1Name, rawP2Name]);
-    const winner = rawWinner === rawP1Name ? team1Name : rawWinner === rawP2Name ? team2Name : null;
-    if (winner && gameStates.length > 0) {
-        gameStates[gameStates.length - 1].winner = winner;
+    // Find the winner using raw names, then map to the correct team name
+    const rawWinner = findWinner(lines, [rawP1Name, rawP2Name]);
+    const finalWinner = rawWinner === rawP1Name ? team1Name : rawWinner === rawP2Name ? team2Name : null;
+
+    if (finalWinner && gameStates.length > 0) {
+        gameStates[gameStates.length - 1].winner = finalWinner;
     }
-    return { gameStates, winner };
+
+    return { gameStates, winner: finalWinner };
 }
 
 const findCardAndZone = (state: GameState, cardId: string): CardLocation | null => {
@@ -62,22 +71,34 @@ const findCardAndZone = (state: GameState, cardId: string): CardLocation | null 
     return null;
 };
 
-function applyJsonEvent(prevState: GameState, event: JsonEvent, cardDictionary: Map<string, string>, rawP1Name, rawP2Name, team1Name, team2Name): GameState {
+function applyJsonEvent(
+    prevState: GameState, 
+    event: JsonEvent, 
+    cardDictionary: Map<string, string>, 
+    rawP1Name: string, 
+    rawP2Name: string, 
+    team1Name: string, 
+    team2Name: string
+): GameState {
     const state: GameState = JSON.parse(JSON.stringify(prevState));
-const replaceName = (name) => {
+
+    const replaceName = (name: string | undefined): string => {
         if (name === rawP1Name) return team1Name;
         if (name === rawP2Name) return team2Name;
-        return name;
+        return name || '';
     };
+
     switch (event.type) {
         case "TURN_BEGAN":
             if (event.turnOwner?.name) {
                 state.turn = event.turnNumber!;
                 state.activePlayer = replaceName(event.turnOwner.name);
+                
                 const activePlayerState = state.players[state.activePlayer];
                 if (activePlayerState) {
                     activePlayerState.battlefield.forEach((c: Card) => { c.isTapped = false; });
                 }
+                
                 Object.values(state.players).forEach((p: PlayerState) => p.battlefield.forEach((c: Card) => { 
                     c.isAttacking = false; 
                     c.isBlocking = false; 
@@ -86,23 +107,25 @@ const replaceName = (name) => {
             break;
         
         case "PLAYER_DAMAGED":
-           if (event.player?.name) {
+           if (event.player?.name && typeof event.amount === 'number') {
                 const correctName = replaceName(event.player.name);
-                if (state.players[correctName]) {
-                    state.players[correctName].life -= event.amount;
+                const playerState = Object.values(state.players).find(p => p.name === correctName);
+                if (playerState) {
+                    playerState.life -= event.amount;
                 }
             }
             break;
-
       
-
         case "ZONE_CHANGE":
             if (event.card && event.from && event.to) {
                 const from = parseZoneString(event.from);
                 const to = parseZoneString(event.to);
                 if (!from || !to) break;
- from.player = replaceName(from.player);
+
+                // Replace names in the parsed zone objects
+                from.player = replaceName(from.player);
                 to.player = replaceName(to.player);
+                
                 const cardId = String(event.card.id);
                 const cardType = cardDictionary.get(event.card.name) || 'Unknown';
                 
@@ -110,37 +133,42 @@ const replaceName = (name) => {
                 const location = findCardAndZone(state, cardId);
 
                 if (location) {
-                    if (location.zoneName === 'stack') {
-                        cardToMove = state.stack.splice(location.index, 1)[0];
-                    } else if (location.player) {
-                        const zone = (location.player as any)[location.zoneName] as Card[];
-                        [cardToMove] = zone.splice(location.index, 1);
+                    const sourcePlayer = Object.values(state.players).find(p => p === location.player);
+                    const sourceZoneKey = location.zoneName.toLowerCase();
+                    const sourceZone = sourceZoneKey === 'stack' ? state.stack : (sourcePlayer as any)?.[sourceZoneKey];
+
+                    if (sourceZone && location.index !== -1) {
+                        [cardToMove] = sourceZone.splice(location.index, 1);
                     }
                 } else {
-                    if (from.zone === 'library' && from.player && state.players[from.player]) {
-                        state.players[from.player].librarySize--;
+                    if (from.zone === 'library' && from.player) {
+                         const sourcePlayerState = Object.values(state.players).find(p => p.name === from.player);
+                         if (sourcePlayerState) {
+                            sourcePlayerState.librarySize = Math.max(0, sourcePlayerState.librarySize - 1);
+                         }
                     }
                     cardToMove = { id: cardId, name: event.card.name, cardType };
                 }
 
                 if (cardToMove) {
-    cardToMove.cardType = cardType;
-
-    if (to.zone === 'stack') {
-        // Stack is a global zone with no player — handle explicitly
-        state.stack.push(cardToMove);
-    } else if (to.player && state.players[to.player]) {
-        const destZoneKey = to.zone.toLowerCase();
-        if (destZoneKey === 'library') {
-            state.players[to.player].librarySize++;
-        } else {
-            const destZone = (state.players[to.player] as any)[destZoneKey];
-            if (Array.isArray(destZone)) {
-                destZone.push(cardToMove);
-            }
-        }
-    }
-}
+                    cardToMove.cardType = cardType;
+                    if (to.zone === 'stack') {
+                        state.stack.push(cardToMove);
+                    } else if (to.player) {
+                        const destPlayerState = Object.values(state.players).find(p => p.name === to.player);
+                        if (destPlayerState) {
+                            const destZoneKey = to.zone.toLowerCase();
+                            if (destZoneKey === 'library') {
+                                destPlayerState.librarySize++;
+                            } else {
+                                const destZone = (destPlayerState as any)[destZoneKey];
+                                if (Array.isArray(destZone)) {
+                                    destZone.push(cardToMove);
+                                }
+                            }
+                        }
+                    }
+                }
             }
             break;
 
@@ -181,6 +209,7 @@ function getInitialState(p1Name: string, p2Name: string, d1Content: string, d2Co
             return count + (match ? parseInt(match[1], 10) : 1);
         }, 0);
     };
+
     return {
         turn: 0, activePlayer: "", stack: [],
         players: {
