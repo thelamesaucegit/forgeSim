@@ -1,3 +1,5 @@
+//parser
+
 import { GameState, Card, PlayerState, JsonEvent, CardLocation } from './types.js';
 import { parseZoneString, findPlayerNamesFromRawLog, findWinner } from './utils.js';
 
