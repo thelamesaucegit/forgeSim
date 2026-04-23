@@ -41,6 +41,8 @@ public class Match {
     private final EventBus events = new EventBus("match events");
     private final Map<Integer, GameOutcome> gameOutcomes = Maps.newHashMap();
     private GameOutcome lastOutcome = null;
+     private String team1Name;
+    private String team2Name;
 
     // v-v-v-v- NEW FIELD TO STORE THE UUID v-v-v-v-
     private final String id;
@@ -66,7 +68,11 @@ public class Match {
         }
     }
     // ^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-^-
-
+public String getTeam1Name() { return team1Name; }
+    public void setTeam1Name(String team1Name) { this.team1Name = team1Name; }
+    public String getTeam2Name() { return team2Name; }
+    public void setTeam2Name(String team2Name) { this.team2Name = team2Name; }
+    
     // v-v-v-v- NEW PUBLIC GETTER FOR THE ID v-v-v-v-
     public String getMatchId() {
         return this.id;
