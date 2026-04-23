@@ -1,4 +1,3 @@
-//server.ts
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -7,9 +6,9 @@ import { createClient } from '@supabase/supabase-js';
 import { postProcessLog } from './parser.js';
 import { processReplay } from './ReplayProcessor.js';
 import { WebSocket } from 'ws';
-import { findPlayerNamesFromRawLog } from './utils.js'; // Assuming this is where it lives
+import { findPlayerNamesFromRawLog } from './utils.js';
 
-type WebSocketLikeConstructor = new (address: string | URL, subprotocols?: string | string[] | undefined) => any;
+type WebSocketLikeConstructor = new (address: string | URL, subprotocols?: string | string[]) => any;
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
@@ -46,7 +45,7 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
     console.log(`[ENRICH] Fetching team data for match ${matchId}...`);
     const { data: matchData, error: matchError } = await supabase
         .from('sim_matches')
-        .select('team1_id, team2_id, team1_name, team2_name, team1_color, team1_seccolor, team2_color, team2_seccolor')
+        .select('team1_name, team2_name, team1_color, team1_seccolor, team2_color, team2_seccolor')
         .eq('id', matchId)
         .single();
 
@@ -57,10 +56,9 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
 
     const { team1_name, team1_color, team1_seccolor, team2_name, team2_color, team2_seccolor } = matchData;
     
-    // Find the raw player names from the first game state object
     const firstState = rawGameStates[0];
     if (!firstState?.player1Name || !firstState?.player2Name) {
-         console.warn("[ENRICH] Could not find raw player names in game states to replace.");
+        console.warn("[ENRICH] Could not find raw player names in game states to replace.");
         return rawGameStates;
     }
     const rawP1Name = firstState.player1Name;
@@ -69,7 +67,7 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
     console.log(`[ENRICH] Mapping raw names: '${rawP1Name}' -> '${team1_name}', '${rawP2Name}' -> '${team2_name}'`);
 
     return rawGameStates.map(state => {
-        const newState = JSON.parse(JSON.stringify(state)); // Deep copy to avoid mutation issues
+        const newState = JSON.parse(JSON.stringify(state));
         
         if (newState.gameState?.players) {
             newState.gameState.players.forEach((player: any) => {
@@ -119,12 +117,8 @@ async function spawnMatchProcess({ new: payload }: any) {
         const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1_id, team2_id, '-a', profile1, profile2, '-n', '1','-id', matchId]);
         
         let rawLog = '';
-        child.stdout.on('data', (data: Buffer) => {
-            const str = data.toString();
-            rawLog += str;
-            process.stdout.write(str);
-        });
-        child.stderr.on('data', (data: Buffer) => console.error(`[JVM_ERR] ${data.toString().trim()}`));
+        child.stdout.on('data', (data: Buffer) => { rawLog += data.toString(); process.stdout.write(data.toString()); });
+        child.stderr.on('data', (data: Buffer) => { console.error(`[JVM_ERR] ${data.toString().trim()}`); });
 
         child.on('close', async (code: number) => {
             console.log(`[MATCH] Complete: ${matchId} (Code: ${code})`);
@@ -133,35 +127,34 @@ async function spawnMatchProcess({ new: payload }: any) {
                  return;
             }
 
-            // --- THIS IS THE FIX: Handle both pipelines correctly ---
+            // --- THIS IS THE DEFINITIVE FIX ---
 
-            // 1. Process the legacy log for the 'game_states' column
+            // 1. Process legacy log and update 'game_states' and 'winner'
             const cardDictionary = await getCardDictionary(deck1_list + '\n' + deck2_list);
             const { gameStates: legacyGameStates, winner } = await postProcessLog(rawLog, team1_name, team2_name, deck1_list, deck2_list, cardDictionary);
+            
             if (!winner) { 
                 console.warn(`[PROCESS] No winner found for ${matchId} in legacy log.`);
-                await supabase.from('sim_matches').update({ status: 'processing_failed' }).eq('id', matchId);
-                return; 
-            }
-            const finalLegacyReplay = processReplay(legacyGameStates);
-            
-            // Update winner and legacy states together
-            const { error: legacyUpdateError } = await supabase
-                .from('sim_matches')
-                .update({ winner, game_states: finalLegacyReplay, status: 'processing' })
-                .eq('id', matchId);
+                // Don't return, still try to process argentum log.
+            } else {
+                const finalLegacyReplay = processReplay(legacyGameStates);
+                const { error: legacyUpdateError } = await supabase
+                    .from('sim_matches')
+                    .update({ winner, game_states: finalLegacyReplay, status: 'processing' })
+                    .eq('id', matchId);
 
-            if (legacyUpdateError) {
-                console.error(`[DB] Legacy replay/winner update error for ${matchId}:`, legacyUpdateError);
-                return;
+                if (legacyUpdateError) {
+                    console.error(`[DB] Legacy replay/winner update error for ${matchId}:`, legacyUpdateError);
+                } else {
+                    console.log(`[DB] Legacy replay and winner saved for ${matchId}.`);
+                }
             }
-            console.log(`[DB] Legacy replay and winner saved for ${matchId}.`);
 
-            // 2. Process the new 'argentum_game_states' after a delay
+            // 2. Process new 'argentum_game_states' enrichment after a delay
             setTimeout(async () => {
                 const { data: match, error: fetchErr } = await supabase.from('sim_matches').select('argentum_game_states').eq('id', matchId).single();
-                if (fetchErr || !match?.argentum_game_states) {
-                    console.error(`[ENRICH] Could not fetch argentum_game_states for ${matchId}:`, fetchErr);
+                if (fetchErr || !match?.argentum_game_states || (match.argentum_game_states as any[]).length === 0) {
+                    console.error(`[ENRICH] Could not fetch argentum_game_states for match ${matchId}:`, fetchErr);
                     await supabase.from('sim_matches').update({ status: 'processing_failed' }).eq('id', matchId);
                     return;
                 }
@@ -176,42 +169,41 @@ async function spawnMatchProcess({ new: payload }: any) {
                     console.log(`[DB] Enriched replay successfully saved for ${matchId}.`);
                     await supabase.from('sim_matches').update({ status: 'completed' }).eq('id', matchId);
                 }
+            }, 5000);
 
-            // Update schedule table to completed
-            const { error: scheduleError } = await supabase
-                .from('schedule')
-                .update({
-                    status: 'completed',
-                    winner_team_id: winnerTeamId,
-                })
-                .eq('sim_match_id', matchId);
+            // 3. Update schedule table (This logic can run immediately)
+            // It relies on the `winner` from the legacy log processing, which is fast.
+            const winnerTeamId = [
+                { name: team1_name, id: team1_id }, 
+                { name: team2_name, id: team2_id }
+            ].find(t => t.name === winner)?.id ?? null;
 
-            if (scheduleError) {
-                console.error(`[DB] Schedule update error for sim_match ${matchId}:`, scheduleError);
-            } else {
-                console.log(`[DB] Schedule row completed for sim_match ${matchId}, winner team: ${winnerTeamId ?? 'draw'}`);
+            const { data: scheduleRow } = await supabase.from('schedule').select('id, weekly_matchup_id').eq('sim_match_id', matchId).maybeSingle();
+            
+            if (scheduleRow) {
+                const { error: scheduleError } = await supabase
+                    .from('schedule')
+                    .update({ status: 'completed', winner_team_id: winnerTeamId })
+                    .eq('id', scheduleRow.id);
+
+                if (scheduleError) {
+                    console.error(`[DB] Schedule update error for sim_match ${matchId}:`, scheduleError);
+                } else {
+                    console.log(`[DB] Schedule row completed for sim_match ${matchId}, winner team: ${winnerTeamId ?? 'draw'}`);
+                }
+
+                if (scheduleRow.weekly_matchup_id) {
+                    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/record-sim-result`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            weeklyMatchupId: scheduleRow.weekly_matchup_id,
+                            winnerTeamId,
+                        }),
+                    });
+                }
             }
-            const { data: scheduleRow } = await supabase
-    .from('schedule')
-    .select('weekly_matchup_id, team1_id, team2_id')
-    .eq('sim_match_id', matchId)
-    .maybeSingle();
-
-if (scheduleRow?.weekly_matchup_id) {
-    // winner is the player name string containing the team UUID
-    const winnerTeamId = [team1_id, team2_id].find(id => id && winner.includes(id)) ?? null;
-    
-    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/record-sim-result`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            weeklyMatchupId: scheduleRow.weekly_matchup_id,
-            winnerTeamId,
-        }),
-    });
-}
         });
-
     } catch (e) { console.error(`[FATAL] for ${matchId}:`, e); }
 }
 
