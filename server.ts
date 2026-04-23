@@ -1,3 +1,5 @@
+//server.ts
+
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -55,7 +57,6 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
     }
 
     const { team1_name, team1_color, team1_seccolor, team2_name, team2_color, team2_seccolor } = matchData;
-    
     const firstState = rawGameStates[0];
     if (!firstState?.player1Name || !firstState?.player2Name) {
         console.warn("[ENRICH] Could not find raw player names in game states to replace.");
@@ -70,7 +71,8 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
         const newState = JSON.parse(JSON.stringify(state));
         
         if (newState.gameState?.players) {
-            newState.gameState.players.forEach((player: any) => {
+            // FIX: Iterate over the object values, not the object itself
+            Object.values(newState.gameState.players).forEach((player: any) => {
                 if (player.name === rawP1Name) {
                     player.name = team1_name;
                     player.theme = { primary: team1_color, secondary: team1_seccolor };
@@ -98,6 +100,7 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
     });
 }
 
+
 const getAiProfile = (info: string): string => {
     const match = info.match(/\(AI: (.*?)\)/);
     return match ? match[1] : 'Default';
@@ -105,7 +108,6 @@ const getAiProfile = (info: string): string => {
 
 async function spawnMatchProcess({ new: payload }: any) {
     const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_info, player2_info, team1_name, team2_name } = payload;
-    
     const profile1 = getAiProfile(player1_info);
     const profile2 = getAiProfile(player2_info);
     console.log(`[MATCH] Received: ${matchId} (${team1_name} (${profile1}) vs ${team2_name} (${profile2}))`);
@@ -140,7 +142,9 @@ async function spawnMatchProcess({ new: payload }: any) {
                 const finalLegacyReplay = processReplay(legacyGameStates);
                 const { error: legacyUpdateError } = await supabase
                     .from('sim_matches')
-                    .update({ winner, game_states: finalLegacyReplay, status: 'processing' })
+                    .update({ winner, game_states: finalLegacyReplay})
+                    .from('schedule')
+                    .update(
                     .eq('id', matchId);
 
                 if (legacyUpdateError) {
