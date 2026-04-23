@@ -101,7 +101,8 @@ const replaceName = (name) => {
                 const from = parseZoneString(event.from);
                 const to = parseZoneString(event.to);
                 if (!from || !to) break;
-
+ from.player = replaceName(from.player);
+                to.player = replaceName(to.player);
                 const cardId = String(event.card.id);
                 const cardType = cardDictionary.get(event.card.name) || 'Unknown';
                 
