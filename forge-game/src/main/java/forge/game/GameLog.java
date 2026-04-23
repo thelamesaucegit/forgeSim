@@ -1,5 +1,3 @@
-//forge-game/src/main/java/forge/game/GameLog.java
-
 /*
  * Forge: Play Magic: the Gathering.
  * Copyright (C) 2011  Forge Team
@@ -47,8 +45,7 @@ public class GameLog extends Observable implements Serializable {
      * 6 - All Phase information
      */
 
-    public GameLog(String team1Name, String team2Name) {
-        this.formatter = new GameLogFormatter(this, team1Name, team2Name);
+    public GameLog() {
     }
 
     public void add(final GameLogEntryType type, final String message) {
