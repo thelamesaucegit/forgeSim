@@ -334,6 +334,8 @@ private boolean isCopy = false;
         match = match0;
         maingame = maingame0;
         this.id = nextId();
+            this.log = new GameLog(match.getTeam1Name(), match.getTeam2Name());
+
 
         int highestTeam = -1;
         for (RegisteredPlayer psc : players0) {
