@@ -20,9 +20,14 @@ import forge.util.*;
 public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
     private final Localizer localizer = Localizer.getInstance();
     private final GameLog log;
-    public GameLogFormatter(GameLog gameLog) {
-        log = gameLog;
-    }
+     private final String team1Name;
+    private final String team2Name;
+    private String rawP1Name;
+    private String rawP2Name;
+    public GameLogFormatter(GameLog gameLog, String t1Name, String t2Name) {
+  this.log = gameLog;
+        this.team1Name = t1Name;
+        this.team2Name = t2Name;    }
 
     @Override
     public GameLogEntry visit(GameEventGameOutcome ev) {
