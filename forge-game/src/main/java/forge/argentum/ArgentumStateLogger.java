@@ -7,8 +7,6 @@ import com.google.gson.GsonBuilder;
 import forge.argentum.data.ArgentumData.*;
 import forge.argentum.data.SpectatorStateDiff;
 import forge.game.Game;
-import forge.game.GameLogEntry; 
-import forge.game.GameLogEntryType; 
 import forge.game.GameObject;
 import forge.game.combat.Combat;
 import forge.game.card.Card;
@@ -53,25 +51,6 @@ public class ArgentumStateLogger {
         this.game = game;
     }
 
-@Override
-    public void log(final GameLogEntry ge) {
-        // Create a mutable copy of the game log entry
-        GameLogEntry modifiedEntry = new GameLogEntry(ge.getType(), ge.getMessage());
-
-        // Replace raw AI names in the message with the correct team names
-        String message = modifiedEntry.getMessage();
-        if (this.game.getPlayers().get(0) != null && this.team1Name != null) {
-            message = message.replace(this.game.getPlayers().get(0).getName(), this.team1Name);
-        }
-        if (this.game.getPlayers().get(1) != null && this.team2Name != null) {
-            message = message.replace(this.game.getPlayers().get(1).getName(), this.team2Name);
-        }
-        modifiedEntry.setMessage(message);
-        
-        // Add the modified entry to our log buffer
-        this.logEntries.add(modifiedEntry);
-    }
-    
     @Subscribe
     public void onGameEvent(GameEvent event) {
        if (game.isGameOver()) return;

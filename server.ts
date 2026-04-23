@@ -71,7 +71,6 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
         const newState = JSON.parse(JSON.stringify(state));
         
         if (newState.gameState?.players) {
-            // FIX: Iterate over the object values, not the object itself
             Object.values(newState.gameState.players).forEach((player: any) => {
                 if (player.name === rawP1Name) {
                     player.name = team1_name;
@@ -86,15 +85,24 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
         if (newState.player1Name === rawP1Name) newState.player1Name = team1_name;
         if (newState.player2Name === rawP2Name) newState.player2Name = team2_name;
         
-        const replaceIdIfNeeded = (id: string) => {
-            if (id === rawP1Name) return team1_name;
-            if (id === rawP2Name) return team2_name;
-            return id;
-        }
+        const replaceIdIfNeeded = (id: string) => (id === rawP1Name ? team1_name : id === rawP2Name ? team2_name : id);
 
         if (newState.gameState?.activePlayerId) newState.gameState.activePlayerId = replaceIdIfNeeded(newState.gameState.activePlayerId);
         if (newState.gameState?.priorityPlayerId) newState.gameState.priorityPlayerId = replaceIdIfNeeded(newState.gameState.priorityPlayerId);
         if (newState.gameState?.winnerId) newState.gameState.winnerId = replaceIdIfNeeded(newState.gameState.winnerId);
+        
+        // --- THIS IS THE FIX FOR THE GAME LOG ---
+        if (newState.gameState?.gameLog && Array.isArray(newState.gameState.gameLog)) {
+            newState.gameState.gameLog = newState.gameState.gameLog.map((logEntry: any) => {
+                if (logEntry && typeof logEntry.message === 'string') {
+                    let newMessage = logEntry.message.replace(new RegExp(rawP1Name, 'g'), team1_name);
+                    newMessage = newMessage.replace(new RegExp(rawP2Name, 'g'), team2_name);
+                    return { ...logEntry, message: newMessage };
+                }
+                return logEntry;
+            });
+        }
+        // --- END FIX ---
 
         return newState;
     });
