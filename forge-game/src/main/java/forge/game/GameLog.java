@@ -47,7 +47,8 @@ public class GameLog extends Observable implements Serializable {
      * 6 - All Phase information
      */
 
-    public GameLog() {
+    public GameLog(String team1Name, String team2Name) {
+        this.formatter = new GameLogFormatter(this, team1Name, team2Name);
     }
 
     public void add(final GameLogEntryType type, final String message) {
