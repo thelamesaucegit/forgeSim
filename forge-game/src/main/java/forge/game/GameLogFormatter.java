@@ -29,6 +29,23 @@ public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
         this.team1Name = t1Name;
         this.team2Name = t2Name;    }
 
+private String replacePlayerName(String original) {
+        if (rawP1Name == null && rawP2Name == null) { // Find raw names on first event
+            Game game = log.getGame(); // You will need to add a getGame() method to GameLog
+            if (game != null && game.getPlayers().size() > 1) {
+                this.rawP1Name = game.getPlayers().get(0).getName();
+                this.rawP2Name = game.getPlayers().get(1).getName();
+            }
+        }
+        if (rawP1Name != null && original.contains(rawP1Name)) {
+            return original.replace(rawP1Name, this.team1Name);
+        }
+        if (rawP2Name != null && original.contains(rawP2Name)) {
+            return original.replace(rawP2Name, this.team2Name);
+        }
+        return original;
+    }
+    
     @Override
     public GameLogEntry visit(GameEventGameOutcome ev) {
         // Turn number counted from the starting player
@@ -165,24 +182,27 @@ public class GameLogFormatter extends IGameEventVisitor.Base<GameLogEntry> {
      * @see forge.game.event.IGameEventVisitor.Base#visit(forge.game.event.GameEventLandPlayed)
      */
     @Override
-    public GameLogEntry visit(GameEventLandPlayed ev) {
-        String message = localizer.getMessage("lblLogPlayerPlayedLand", ev.player().toString(), ev.land().toString());
-        return new GameLogEntry(GameLogEntryType.LAND, message, ev.land());
+  public Void visit(GameEventLandPlayed ev) {
+        String message = String.format("%s plays %s.", replacePlayerName(ev.player().getName()), ev.land());
+        log.add(GameLogEntryType.LAND, message, ev.land());
+        return null;
     }
 
     @Override
-    public GameLogEntry visit(GameEventTurnBegan event) {
-        String message = localizer.getMessage("lblLogTurnNOwnerByPlayer", String.valueOf(event.turnNumber()), event.turnOwner().toString());
-        return new GameLogEntry(GameLogEntryType.TURN, message);
+ public Void visit(GameEventTurnBegan event) {
+        String message = "Turn " + event.turnNumber() + ": " + replacePlayerName(event.turnOwner().getName());
+        log.add(GameLogEntryType.TURN, message);
+        return null;
     }
 
     @Override
-    public GameLogEntry visit(GameEventPlayerDamaged ev) {
-        String extra = ev.infect() ? localizer.getMessage("lblLogAsPoisonCounters") : "";
-        String damageType = ev.combat() ? localizer.getMessage("lblCombat") : localizer.getMessage("lblNonCombat");
-        String message = localizer.getMessage("lblLogSourceDealsNDamageOfTypeToDest", ev.source().toString(),
-                            String.valueOf(ev.amount()), damageType, ev.target().toString(), extra);
-        return new GameLogEntry(GameLogEntryType.DAMAGE, message, ev.source());
+    public Void visit(GameEventPlayerDamaged event) {
+        String message = String.format("%s deals %d damage to %s.", 
+            event.source(), 
+            event.amount(), 
+            replacePlayerName(event.target().getName()));
+        log.add(GameLogEntryType.DAMAGE, message, event.source());
+        return null;
     }
 
     @Override
