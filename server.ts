@@ -48,13 +48,13 @@ const getAiProfile = (info: string): string => {
 };
 
 async function spawnMatchProcess({ new: payload }: any) {
-    const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_info, player2_info } = payload;
+    const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_info, player2_info, team1_name, team2_name } = payload;
     
     // FIX: Use the helper function to get correct AI profiles
     const profile1 = getAiProfile(player1_info);
     const profile2 = getAiProfile(player2_info);
 
-    console.log(`[MATCH] Received: ${matchId} (${team1_id} (${profile1}) vs ${team2_id} (${profile2}))`);
+    console.log(`[MATCH] Received: ${matchId} (${team1_name} (${profile1}) vs ${team2_name} (${profile2}))`);
     
     try {
         await fs.writeFile(path.join(DECKS_DIR, `${team1_id}.dck`), deck1_list);
@@ -75,7 +75,7 @@ async function spawnMatchProcess({ new: payload }: any) {
         child.on('close', async (code: number) => {
             console.log(`[MATCH] Complete: ${matchId} (Code: ${code})`);
             if (code !== 0) return;
-            const { gameStates, winner } = await postProcessLog(rawLog, deck1_list, deck2_list, cardDictionary);
+            const { gameStates, winner } = await postProcessLog(rawLog,  deck1_list, deck2_list, cardDictionary, team1_name, team2_name);
             if (!winner) { console.warn(`[PROCESS] No winner found for ${matchId}.`); return; }
             // Write winner first — small, fast, critical.
             const { error: winnerError } = await supabase
