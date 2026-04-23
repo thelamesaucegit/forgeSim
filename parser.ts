@@ -82,10 +82,10 @@ function applyJsonEvent(
 ): GameState {
     const state: GameState = JSON.parse(JSON.stringify(prevState));
 
-    const replaceName = (name: string | undefined): string => {
+    const replaceName = (name: string | undefined | null): string | null => {
         if (name === rawP1Name) return team1Name;
         if (name === rawP2Name) return team2Name;
-        return name || '';
+        return name || null; // Return null if name is undefined or null
     };
 
     switch (event.type) {
