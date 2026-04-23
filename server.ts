@@ -1,27 +1,28 @@
-//server.ts
-
+// /src/server.ts
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
 import * as http from 'http';
-import { createClient, RealtimeChannel } from '@supabase/supabase-js';
+import { createClient } from '@supabase/supabase-js';
 import { postProcessLog } from './parser.js';
 import { processReplay } from './ReplayProcessor.js';
 import { WebSocket } from 'ws';
+import { findPlayerNamesFromRawLog } from './utils.js'; // Assuming this is where it lives
 
 type WebSocketLikeConstructor = new (address: string | URL, subprotocols?: string | string[] | undefined) => any;
+
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
-
 const WsAdapter: WebSocketLikeConstructor = WebSocket;
+
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false },
     realtime: { transport: WsAdapter }
 });
-console.log('[INIT] Supabase client initialized with type-safe WebSocket transport.');
 
+console.log('[INIT] Supabase client initialized.');
 fs.mkdir(LOGS_DIR, { recursive: true });
 fs.mkdir(DECKS_DIR, { recursive: true });
 
@@ -40,11 +41,8 @@ async function getCardDictionary(decklist: string): Promise<Map<string, string>>
     if (data) data.forEach(c => cardDictionary.set(c.card_name, c.card_type));
     return cardDictionary;
 }
-// This function takes the raw game states and enriches them with team data.
-async function enrichGameStates(
-    rawGameStates: any[], 
-    matchId: string
-): Promise<any[]> {
+
+async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<any[]> {
     console.log(`[ENRICH] Fetching team data for match ${matchId}...`);
     const { data: matchData, error: matchError } = await supabase
         .from('sim_matches')
@@ -54,28 +52,25 @@ async function enrichGameStates(
 
     if (matchError || !matchData) {
         console.error(`[ENRICH] Failed to fetch match data for enrichment:`, matchError);
-        return rawGameStates; // Return raw states as a fallback
-    }
-
-    const { 
-        team1_name, team1_color, team1_seccolor,
-        team2_name, team2_color, team2_seccolor 
-    } = matchData;
-
-    const { player1: rawP1Name, player2: rawP2Name } = findPlayerNamesFromRawLog(JSON.stringify(rawGameStates)); // A bit inefficient but reliable
-
-    if (!rawP1Name || !rawP2Name) {
-        console.warn("[ENRICH] Could not find raw player names in game states to replace.");
         return rawGameStates;
     }
+
+    const { team1_name, team1_color, team1_seccolor, team2_name, team2_color, team2_seccolor } = matchData;
+    
+    // Find the raw player names from the first game state object
+    const firstState = rawGameStates[0];
+    if (!firstState?.player1Name || !firstState?.player2Name) {
+         console.warn("[ENRICH] Could not find raw player names in game states to replace.");
+        return rawGameStates;
+    }
+    const rawP1Name = firstState.player1Name;
+    const rawP2Name = firstState.player2Name;
     
     console.log(`[ENRICH] Mapping raw names: '${rawP1Name}' -> '${team1_name}', '${rawP2Name}' -> '${team2_name}'`);
 
-    // Iterate over each state and replace names/add colors.
     return rawGameStates.map(state => {
-        const newState = { ...state };
+        const newState = JSON.parse(JSON.stringify(state)); // Deep copy to avoid mutation issues
         
-        // Replace player names and add theme data in the players array
         if (newState.gameState?.players) {
             newState.gameState.players.forEach((player: any) => {
                 if (player.name === rawP1Name) {
@@ -88,44 +83,39 @@ async function enrichGameStates(
             });
         }
         
-        // Replace top-level player names
         if (newState.player1Name === rawP1Name) newState.player1Name = team1_name;
         if (newState.player2Name === rawP2Name) newState.player2Name = team2_name;
         
-        // Replace active player and priority player IDs (if they are names)
-        if (newState.gameState?.activePlayerId === rawP1Name) newState.gameState.activePlayerId = team1_name;
-        if (newState.gameState?.activePlayerId === rawP2Name) newState.gameState.activePlayerId = team2_name;
-        if (newState.gameState?.priorityPlayerId === rawP1Name) newState.gameState.priorityPlayerId = team1_name;
-        if (newState.gameState?.priorityPlayerId === rawP2Name) newState.gameState.priorityPlayerId = team2_name;
+        const replaceIdIfNeeded = (id: string) => {
+            if (id === rawP1Name) return team1_name;
+            if (id === rawP2Name) return team2_name;
+            return id;
+        }
 
-        // Replace winner ID
-        if (newState.gameState?.winnerId === rawP1Name) newState.gameState.winnerId = team1_name;
-        if (newState.gameState?.winnerId === rawP2Name) newState.gameState.winnerId = team2_name;
+        if (newState.gameState?.activePlayerId) newState.gameState.activePlayerId = replaceIdIfNeeded(newState.gameState.activePlayerId);
+        if (newState.gameState?.priorityPlayerId) newState.gameState.priorityPlayerId = replaceIdIfNeeded(newState.gameState.priorityPlayerId);
+        if (newState.gameState?.winnerId) newState.gameState.winnerId = replaceIdIfNeeded(newState.gameState.winnerId);
 
         return newState;
     });
 }
-// FIX: Helper function to parse AI profile from player_info string
+
 const getAiProfile = (info: string): string => {
     const match = info.match(/\(AI: (.*?)\)/);
-    return match ? match[1] : 'Default'; // Fallback to 'Default' if parsing fails
+    return match ? match[1] : 'Default';
 };
 
 async function spawnMatchProcess({ new: payload }: any) {
     const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_info, player2_info, team1_name, team2_name } = payload;
     
-    // FIX: Use the helper function to get correct AI profiles
     const profile1 = getAiProfile(player1_info);
     const profile2 = getAiProfile(player2_info);
-
     console.log(`[MATCH] Received: ${matchId} (${team1_name} (${profile1}) vs ${team2_name} (${profile2}))`);
     
     try {
         await fs.writeFile(path.join(DECKS_DIR, `${team1_id}.dck`), deck1_list);
         await fs.writeFile(path.join(DECKS_DIR, `${team2_id}.dck`), deck2_list);
-
-        const cardDictionary = await getCardDictionary(deck1_list + '\n' + deck2_list);
-
+        
         const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1_id, team2_id, '-a', profile1, profile2, '-n', '1','-id', matchId]);
         
         let rawLog = '';
@@ -138,53 +128,54 @@ async function spawnMatchProcess({ new: payload }: any) {
 
         child.on('close', async (code: number) => {
             console.log(`[MATCH] Complete: ${matchId} (Code: ${code})`);
-            if (code !== 0) return;
- setTimeout(async () => {
-                const { data: match, error: fetchErr } = await supabase
-                    .from('sim_matches')
-                    .select('argentum_game_states')
-                    .eq('id', matchId)
-                    .single();
-     if (fetchErr || !match || !match.argentum_game_states) {
-                    console.error(`[ENRICH] Could not fetch argentum_game_states for match ${matchId}:`, fetchErr);
-                    return;
-                }
+            if (code !== 0) {
+                 await supabase.from('sim_matches').update({ status: 'sim_failed' }).eq('id', matchId);
+                 return;
+            }
+
+            // --- THIS IS THE FIX: Handle both pipelines correctly ---
+
+            // 1. Process the legacy log for the 'game_states' column
+            const cardDictionary = await getCardDictionary(deck1_list + '\n' + deck2_list);
+            const { gameStates: legacyGameStates, winner } = await postProcessLog(rawLog, team1_name, team2_name, deck1_list, deck2_list, cardDictionary);
+            if (!winner) { 
+                console.warn(`[PROCESS] No winner found for ${matchId} in legacy log.`);
+                await supabase.from('sim_matches').update({ status: 'processing_failed' }).eq('id', matchId);
+                return; 
+            }
+            const finalLegacyReplay = processReplay(legacyGameStates);
             
-            const { gameStates, winner } = await postProcessLog(rawLog, team1_name, team2_name, deck1_list, deck2_list, cardDictionary);
-            if (!winner) { console.warn(`[PROCESS] No winner found for ${matchId}.`); return; }
-            // Write winner first — small, fast, critical.
-            const { error: winnerError } = await supabase
+            // Update winner and legacy states together
+            const { error: legacyUpdateError } = await supabase
                 .from('sim_matches')
-                .update({ winner })
+                .update({ winner, game_states: finalLegacyReplay, status: 'processing' })
                 .eq('id', matchId);
 
-            if (winnerError) {
-                console.error(`[DB] Winner update error for ${matchId}:`, winnerError);
+            if (legacyUpdateError) {
+                console.error(`[DB] Legacy replay/winner update error for ${matchId}:`, legacyUpdateError);
                 return;
             }
-            console.log(`[DB] Winner saved for ${matchId}.`);
-      const enrichedStates = await enrichGameStates(match.argentum_game_states as any[], matchId);
-                const finalReplay = processReplay(enrichedStates);
+            console.log(`[DB] Legacy replay and winner saved for ${matchId}.`);
 
-            // Write replay separately — large payload, allowed to be slow.
-            
-            const { error: replayError } = await supabase
-                .from('sim_matches')
-                .update({ argentum_game_states: finalReplay })
-                .eq('id', matchId);
-
-            if (replayError) {
+            // 2. Process the new 'argentum_game_states' after a delay
+            setTimeout(async () => {
+                const { data: match, error: fetchErr } = await supabase.from('sim_matches').select('argentum_game_states').eq('id', matchId).single();
+                if (fetchErr || !match?.argentum_game_states) {
+                    console.error(`[ENRICH] Could not fetch argentum_game_states for ${matchId}:`, fetchErr);
+                    await supabase.from('sim_matches').update({ status: 'processing_failed' }).eq('id', matchId);
+                    return;
+                }
+                
+                const enrichedStates = await enrichGameStates(match.argentum_game_states as any[], matchId);
+                
+                const { error: replayError } = await supabase.from('sim_matches').update({ argentum_game_states: enrichedStates }).eq('id', matchId);
+                if (replayError) {
                     console.error(`[DB] Enriched replay update error for ${matchId}:`, replayError);
+                    await supabase.from('sim_matches').update({ status: 'processing_failed' }).eq('id', matchId);
                 } else {
                     console.log(`[DB] Enriched replay successfully saved for ${matchId}.`);
+                    await supabase.from('sim_matches').update({ status: 'completed' }).eq('id', matchId);
                 }
-
-            // Resolve winner_team_id from the winner string
-            // The winner string is the player name, which contains the team_id UUID
-            // Format: "Ai(1)-<team_id> (AI: <profile>)" or similar
-            const winnerTeamId = [team1_id, team2_id].find(
-                id => id && winner.includes(id)
-            ) ?? null;
 
             // Update schedule table to completed
             const { error: scheduleError } = await supabase
