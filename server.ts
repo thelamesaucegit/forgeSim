@@ -1,3 +1,5 @@
+//server.ts
+
 import { spawn } from 'child_process';
 import * as fs from 'fs/promises';
 import * as path from 'path';
@@ -41,8 +43,6 @@ async function getCardDictionary(decklist: string): Promise<Map<string, string>>
     return cardDictionary;
 }
 
-// --- THIS IS THE DEFINITIVE FIX ---
-// The function is corrected to get raw names from the snapshot itself.
 async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<any[]> {
     console.log(`[ENRICH] Fetching team data for match ${matchId}...`);
     const { data: matchData, error: matchError } = await supabase
@@ -57,10 +57,9 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
     }
 
     const { team1_name, team1_color, team1_seccolor, team2_name, team2_color, team2_seccolor } = matchData;
-    
     const firstState = rawGameStates[0];
     if (!firstState?.player1Name || !firstState?.player2Name) {
-        console.warn("[ENRICH] Could not find raw player names in the first game state snapshot to perform replacement.");
+        console.warn("[ENRICH] Could not find raw player names in game states to replace.");
         return rawGameStates;
     }
     const rawP1Name = firstState.player1Name;
@@ -71,12 +70,8 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
     return rawGameStates.map(state => {
         const newState = JSON.parse(JSON.stringify(state));
         
-        // This regex replaces all instances, handling potential special characters.
-        const p1Regex = new RegExp(rawP1Name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-        const p2Regex = new RegExp(rawP2Name.replace(/[-\/\\^$*+?.()|[\]{}]/g, '\\$&'), 'g');
-        
         if (newState.gameState?.players) {
-            // Using Object.values because players can be an object or array depending on the source
+            // FIX: Iterate over the object values, not the object itself
             Object.values(newState.gameState.players).forEach((player: any) => {
                 if (player.name === rawP1Name) {
                     player.name = team1_name;
@@ -100,19 +95,11 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
         if (newState.gameState?.activePlayerId) newState.gameState.activePlayerId = replaceIdIfNeeded(newState.gameState.activePlayerId);
         if (newState.gameState?.priorityPlayerId) newState.gameState.priorityPlayerId = replaceIdIfNeeded(newState.gameState.priorityPlayerId);
         if (newState.gameState?.winnerId) newState.gameState.winnerId = replaceIdIfNeeded(newState.gameState.winnerId);
-        
-        // FIX: The Game Log text replacement
-        if (newState.gameState?.gameLog && Array.isArray(newState.gameState.gameLog)) {
-            newState.gameState.gameLog.forEach((logEntry: any) => {
-                if (logEntry && typeof logEntry.message === 'string') {
-                    logEntry.message = logEntry.message.replace(p1Regex, team1_name).replace(p2Regex, team2_name);
-                }
-            });
-        }
+
         return newState;
     });
 }
-// --- END OF FUNCTION ---
+
 
 const getAiProfile = (info: string): string => {
     const match = info.match(/\(AI: (.*?)\)/);
@@ -123,7 +110,7 @@ async function spawnMatchProcess({ new: payload }: any) {
     const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_info, player2_info, team1_name, team2_name } = payload;
     const profile1 = getAiProfile(player1_info);
     const profile2 = getAiProfile(player2_info);
-    console.log(`[MATCH] Received: ${matchId} (${team1_name} vs ${team2_name})`);
+    console.log(`[MATCH] Received: ${matchId} (${team1_name} (${profile1}) vs ${team2_name} (${profile2}))`);
     
     try {
         await fs.writeFile(path.join(DECKS_DIR, `${team1_id}.dck`), deck1_list);
@@ -132,25 +119,32 @@ async function spawnMatchProcess({ new: payload }: any) {
         const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1_id, team2_id, '-a', profile1, profile2, '-n', '1','-id', matchId]);
         
         let rawLog = '';
-        child.stdout.on('data', (data) => { rawLog += data.toString(); process.stdout.write(data.toString()); });
-        child.stderr.on('data', (data) => { console.error(`[JVM_ERR] ${data.toString().trim()}`); });
+        child.stdout.on('data', (data: Buffer) => { rawLog += data.toString(); process.stdout.write(data.toString()); });
+        child.stderr.on('data', (data: Buffer) => { console.error(`[JVM_ERR] ${data.toString().trim()}`); });
 
         child.on('close', async (code: number) => {
             console.log(`[MATCH] Complete: ${matchId} (Code: ${code})`);
-            if (code !== 0) { return; }
+            if (code !== 0) {
+                 return;
+            }
 
+            // --- THIS IS THE DEFINITIVE FIX ---
+
+            // 1. Process legacy log and update 'game_states' and 'winner'
             const cardDictionary = await getCardDictionary(deck1_list + '\n' + deck2_list);
             const { gameStates: legacyGameStates, winner } = await postProcessLog(rawLog, team1_name, team2_name, deck1_list, deck2_list, cardDictionary);
             
-            if (winner) {
+      if (winner) {
                 const finalLegacyReplay = processReplay(legacyGameStates);
                 await supabase.from('sim_matches').update({ winner, game_states: finalLegacyReplay }).eq('id', matchId);
                 console.log(`[DB] Legacy replay and winner saved for ${matchId}.`);
             } else {
                 console.warn(`[PROCESS] No winner found for ${matchId} in legacy log.`);
+                // If there's no winner, we still need to mark the match as complete.
                 await supabase.from('sim_matches').update({ winner: 'Draw' }).eq('id', matchId);
             }
             
+            // 2. Process new 'argentum_game_states' enrichment after a delay
             setTimeout(async () => {
                 const { data: match, error: fetchErr } = await supabase.from('sim_matches').select('argentum_game_states').eq('id', matchId).single();
                 if (fetchErr || !match?.argentum_game_states || (match.argentum_game_states as any[]).length === 0) {
@@ -159,6 +153,7 @@ async function spawnMatchProcess({ new: payload }: any) {
                 }
                 
                 const enrichedStates = await enrichGameStates(match.argentum_game_states as any[], matchId);
+                
                 const { error: replayError } = await supabase.from('sim_matches').update({ argentum_game_states: enrichedStates }).eq('id', matchId);
                 if (replayError) {
                     console.error(`[DB] Enriched replay update error for ${matchId}:`, replayError);
@@ -167,8 +162,38 @@ async function spawnMatchProcess({ new: payload }: any) {
                 }
             }, 5000);
 
-            // This logic is now safe because you have removed it from your file.
-            // If you need to re-add it, it should be done here.
+            // 3. Update schedule table (This logic can run immediately)
+            // It relies on the `winner` from the legacy log processing, which is fast.
+            const winnerTeamId = [
+                { name: team1_name, id: team1_id }, 
+                { name: team2_name, id: team2_id }
+            ].find(t => t.name === winner)?.id ?? null;
+
+            const { data: scheduleRow } = await supabase.from('schedule').select('id, weekly_matchup_id').eq('sim_match_id', matchId).maybeSingle();
+            
+            if (scheduleRow) {
+                const { error: scheduleError } = await supabase
+                    .from('schedule')
+                    .update({ status: 'completed', winner_team_id: winnerTeamId })
+                    .eq('id', scheduleRow.id);
+
+                if (scheduleError) {
+                    console.error(`[DB] Schedule update error for sim_match ${matchId}:`, scheduleError);
+                } else {
+                    console.log(`[DB] Schedule row completed for sim_match ${matchId}, winner team: ${winnerTeamId ?? 'draw'}`);
+                }
+
+                if (scheduleRow.weekly_matchup_id) {
+                    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/record-sim-result`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({
+                            weeklyMatchupId: scheduleRow.weekly_matchup_id,
+                            winnerTeamId,
+                        }),
+                    });
+                }
+            }
         });
     } catch (e) { console.error(`[FATAL] for ${matchId}:`, e); }
 }
