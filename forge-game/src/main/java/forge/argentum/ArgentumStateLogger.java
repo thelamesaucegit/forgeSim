@@ -94,7 +94,15 @@ public class ArgentumStateLogger {
         createSnapshot(eventType);
         flushBatch(); // Immediately flush the final batch synchronously.
     }
-    private boolean shouldCreateSnapshot(GameEvent event) {
+     private boolean shouldCreateSnapshot(GameEvent event) {
+        // Prevent Java from even snapshotting blockers/end combat if no attackers exist
+        if (event instanceof GameEventBlockersDeclared || event instanceof GameEventCombatEnded) {
+            Combat combat = game.getPhaseHandler().getCombat();
+            if (combat != null && combat.getAttackers().isEmpty()) {
+                return false; 
+            }
+        }
+
         return event instanceof GameEventTurnPhase ||
                event instanceof GameEventSpellAbilityCast ||
                event instanceof GameEventAttackersDeclared ||
