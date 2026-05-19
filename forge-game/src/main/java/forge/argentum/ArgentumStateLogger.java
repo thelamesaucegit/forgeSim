@@ -94,21 +94,35 @@ public class ArgentumStateLogger {
         createSnapshot(eventType);
         flushBatch(); // Immediately flush the final batch synchronously.
     }
-     private boolean shouldCreateSnapshot(GameEvent event) {
-        // Prevent Java from even snapshotting blockers/end combat if no attackers exist
-        if (event instanceof GameEventBlockersDeclared || event instanceof GameEventCombatEnded) {
-            Combat combat = game.getPhaseHandler().getCombat();
-            if (combat != null && combat.getAttackers().isEmpty()) {
-                return false; 
+    private boolean shouldCreateSnapshot(GameEvent event) {
+        if (game != null && game.getPhaseHandler() != null && game.getPhaseHandler().getPhase() != null) {
+            String phaseName = game.getPhaseHandler().getPhase().name();
+            
+            // Identify if we are in a combat phase AFTER attackers would have been declared
+            boolean isLateCombatPhase = 
+                phaseName.equals("COMBAT_DECLARE_BLOCKERS") || 
+                phaseName.equals("COMBAT_FIRST_STRIKE_DAMAGE") || 
+                phaseName.equals("COMBAT_DAMAGE") || 
+                phaseName.equals("COMBAT_END");
+            
+            if (isLateCombatPhase) {
+                Combat combat = game.getPhaseHandler().getCombat();
+                // If there are no attackers, completely silence snapshotting for phase changes
+                if (combat == null || combat.getAttackers().isEmpty()) {
+                    // Only save a state if a player explicitly casts an instant/ability
+                    return event instanceof GameEventSpellAbilityCast; 
+                }
             }
         }
 
+        // Standard snapshot rules for all other phases and populated combats
         return event instanceof GameEventTurnPhase ||
                event instanceof GameEventSpellAbilityCast ||
                event instanceof GameEventAttackersDeclared ||
                event instanceof GameEventBlockersDeclared ||
                event instanceof GameEventCombatEnded;
     }
+
 
     public void createSnapshot(String eventType) {
         if (this.game == null || this.game.isCopiedGame() || this.game.getPhaseHandler() == null) return;

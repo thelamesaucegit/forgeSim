@@ -59,8 +59,12 @@ function compressGameStates(rawGameStates: any[]): any[] {
         }
 
         // 3. If NO state changed, evaluate if the phase/step change is meaningful
-        const prevPhase = prevState.gameState?.currentPhase || prevState.currentPhase;
-        const curPhase = gs.currentPhase || state.currentPhase;
+        // FIX: Force uppercase to match Forge's "Combat_Declare_Blockers" vs "COMBAT_DECLARE_BLOCKERS"
+        const rawPrevPhase = prevState.gameState?.currentPhase || prevState.currentPhase || '';
+        const rawCurPhase = gs.currentPhase || state.currentPhase || rawPrevPhase;
+        
+        const prevPhase = rawPrevPhase.toUpperCase();
+        const curPhase = rawCurPhase.toUpperCase();
 
         // Rule A: Drop redundant micro-steps within the exact same phase
         if (prevPhase === curPhase) {
@@ -70,10 +74,12 @@ function compressGameStates(rawGameStates: any[]): any[] {
         // Rule B: Drop empty combat phases if no attackers were declared
         const emptyCombatPhases = [
             'COMBAT_DECLARE_BLOCKERS', 
-            'COMBAT_FIRST_STRIKE_DAMAGE', 
+            'COMBAT_FIRST_STRIKEDAMAGE', // Forge sometimes omits the underscore here
+            'COMBAT_FIRST_STRIKE_DAMAGE',
             'COMBAT_DAMAGE', 
             'COMBAT_END'
         ];
+        
         if (emptyCombatPhases.includes(curPhase)) {
             // Find the active combat state (could be in current state, or inherited from previous)
             const combat = state.combat || gs.combat || prevState.combat || prevState.gameState?.combat;
