@@ -101,7 +101,7 @@ public class ArgentumStateLogger {
             // Identify if we are in a combat phase AFTER attackers would have been declared
             boolean isLateCombatPhase = 
                 phaseName.equals("COMBAT_DECLARE_BLOCKERS") || 
-                phaseName.equals("COMBAT_FIRSTSTRIKEDAMAGE") || 
+                phaseName.equals("COMBAT_FIRST_STRIKE_DAMAGE") || 
                 phaseName.equals("COMBAT_DAMAGE") || 
                 phaseName.equals("COMBAT_END");
             
