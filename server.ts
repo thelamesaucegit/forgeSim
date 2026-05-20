@@ -32,76 +32,71 @@ function compressGameStates(rawGameStates: any[]): any[] {
     if (!rawGameStates || rawGameStates.length === 0) return rawGameStates;
 
     const compressed: any[] = [];
-    // Always keep the very first blueprint state
-    compressed.push(rawGameStates[0]);
+    compressed.push(rawGameStates[0]); // Always keep the initial match state
 
     for (let i = 1; i < rawGameStates.length; i++) {
         const state = rawGameStates[i];
-        const prevState = compressed[compressed.length - 1]; // Compare against the last KEPT state
-
-        // 1. If it's not a diff, keep it (fallback)
-        if (!state.gameState) {
-            compressed.push(state);
-            continue;
-        }
-
         const gs = state.gameState;
         
-        // 2. Check if this state has actual meaningful changes
-        const hasLog = gs.gameLog && gs.gameLog.length > 0;
-        const hasCardChanges = gs.cards && Object.keys(gs.cards).length > 0;
-        const hasZoneChanges = gs.zones && Object.keys(gs.zones).length > 0;
-        const hasPlayerChanges = gs.players && Object.keys(gs.players).length > 0;
-
-        if (hasLog || hasCardChanges || hasZoneChanges || hasPlayerChanges) {
+        if (!gs) {
             compressed.push(state);
             continue;
         }
 
-        // 3. If NO state changed, evaluate if the phase/step change is meaningful
-        // FIX: Force uppercase to match Forge's "Combat_Declare_Blockers" vs "COMBAT_DECLARE_BLOCKERS"
-        const rawPrevPhase = prevState.gameState?.currentPhase || prevState.currentPhase || '';
-        const rawCurPhase = gs.currentPhase || state.currentPhase || rawPrevPhase;
+        // Check if an explicit spell or ability was cast this step
+        const hasLog = gs.gameLog && gs.gameLog.length > 0;
+        const curPhase = (gs.currentPhase || state.currentPhase || '').toUpperCase();
         
-        const prevPhase = rawPrevPhase.toUpperCase();
-        const curPhase = rawCurPhase.toUpperCase();
-
-        // Rule A: Drop redundant micro-steps within the exact same phase
-        if (prevPhase === curPhase) {
-            continue; 
+        // RULE 1: Never drop a state that contains an active game log (spell/ability)
+        if (hasLog) {
+            compressed.push(state);
+            continue;
         }
 
-        // Rule B: Drop empty combat phases if no attackers were declared
-        const emptyCombatPhases = [
-            'COMBAT_DECLARE_BLOCKERS', 
-            'COMBAT_FIRST_STRIKEDAMAGE', // Forge sometimes omits the underscore here
+        const lastKeptState = compressed[compressed.length - 1];
+        const lastKeptPhase = (lastKeptState.gameState?.currentPhase || lastKeptState.currentPhase || '').toUpperCase();
+
+        // RULE 2: Aggressive Empty Combat Pruning
+        const combatPhases = [
+            'COMBAT_DECLARE_ATTACKERS',
+            'COMBAT_DECLARE_BLOCKERS',
+            'COMBAT_FIRST_STRIKEDAMAGE', 
             'COMBAT_FIRST_STRIKE_DAMAGE',
-            'COMBAT_DAMAGE', 
+            'COMBAT_DAMAGE',
             'COMBAT_END'
         ];
-        
-        if (emptyCombatPhases.includes(curPhase)) {
-            // Find the active combat state (could be in current state, or inherited from previous)
-            const combat = state.combat || gs.combat || prevState.combat || prevState.gameState?.combat;
-            if (!combat || !combat.attackers || combat.attackers.length === 0) {
-                continue; // Drop this empty combat phase
+
+        if (combatPhases.includes(curPhase)) {
+            // Find active combat info from current or previous states
+            const combat = state.combat || gs.combat || lastKeptState.combat || lastKeptState.gameState?.combat;
+            const hasAttackers = combat && combat.attackers && combat.attackers.length > 0;
+            
+            // If no attackers are declared and no logs were fired, silently drop this combat step
+            if (!hasAttackers) {
+                continue; 
             }
         }
 
-        // Rule C: Drop redundant CLEANUP / END_OF_TURN if nothing is happening
-        if ((curPhase === 'CLEANUP' && prevPhase === 'END_OF_TURN') || 
-            (curPhase === 'END_OF_TURN' && prevPhase === 'CLEANUP')) {
+        // RULE 3: Squash redundant micro-step transitions in the exact same phase
+        if (curPhase === lastKeptPhase) {
             continue;
         }
 
-        // If it survived all checks, keep it
+        // RULE 4: Squash End_of_Turn / Cleanup priority passing loops
+        if (
+            (curPhase === 'CLEANUP' && lastKeptPhase === 'END_OF_TURN') ||
+            (curPhase === 'END_OF_TURN' && lastKeptPhase === 'CLEANUP')
+        ) {
+            continue;
+        }
+
+        // If the state survived all filtering rules, keep it
         compressed.push(state);
     }
 
-    console.log(`[COMPRESSION] Reduced states from ${rawGameStates.length} to ${compressed.length}`);
+    console.log(`[COMPRESSION] Stripped ${rawGameStates.length - compressed.length} empty states. (New size: ${compressed.length})`);
     return compressed;
 }
-
 async function getCardDictionary(decklist: string): Promise<Map<string, string>> {
     const cardDictionary = new Map<string, string>();
     const cardNameSet = new Set<string>();
@@ -219,7 +214,7 @@ async function spawnMatchProcess({ new: payload }: any) {
                 await supabase.from('sim_matches').update({ winner: 'Draw' }).eq('id', matchId);
             }
             
-              // 2. Process new 'argentum_game_states' enrichment after a delay
+ // 2. Process new 'argentum_game_states' enrichment after a delay
             setTimeout(async () => {
                 const { data: match, error: fetchErr } = await supabase.from('sim_matches').select('argentum_game_states').eq('id', matchId).single();
                 if (fetchErr || !match?.argentum_game_states || (match.argentum_game_states as any[]).length === 0) {
@@ -227,12 +222,12 @@ async function spawnMatchProcess({ new: payload }: any) {
                     return;
                 }
                 
-                // --- NEW COMPRESSION STEP HERE ---
+                // --- NEW COMPRESSION STEP ---
                 const rawStates = match.argentum_game_states as any[];
                 const compressedStates = compressGameStates(rawStates);
-                // ---------------------------------
+                // ----------------------------
 
-                // Pass the COMPRESSED states into the enricher
+                // Pass the COMPRESSED array to the enricher
                 const enrichedStates = await enrichGameStates(compressedStates, matchId);
                 
                 const { error: replayError } = await supabase.from('sim_matches').update({ argentum_game_states: enrichedStates }).eq('id', matchId);
