@@ -260,7 +260,7 @@ async function spawnMatchProcess({ new: payload }: any) {
                 }
 
                 if (scheduleRow.weekly_matchup_id) {
-                    await fetch(`${process.env.NEXT_PUBLIC_APP_URL}/api/record-sim-result`, {
+                    await fetch(`https://www.thedynastycube.com/api/record-sim-result`, {
                         method: 'POST',
                         headers: { 'Content-Type': 'application/json' },
                         body: JSON.stringify({
