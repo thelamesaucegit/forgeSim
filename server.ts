@@ -262,7 +262,7 @@ async function spawnMatchProcess({ new: payload }: any) {
                  if (scheduleRow.weekly_matchup_id) {
                     // We must use a standard env variable for a Node.js process, or fallback to the live site.
                     // NEXT_PUBLIC_ variables are usually undefined outside of Next.js builds!
-                    const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://thedynastycube.com";
+                    const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.thedynastycube.com";
                     
                     console.log(`[WEBHOOK] Pinging ${webhookUrl}/api/record-sim-result for Matchup ${scheduleRow.weekly_matchup_id}...`);
                     
