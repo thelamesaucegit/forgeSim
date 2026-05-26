@@ -259,15 +259,32 @@ async function spawnMatchProcess({ new: payload }: any) {
                     console.log(`[DB] Schedule row completed for sim_match ${matchId}, winner team: ${winnerTeamId ?? 'draw'}`);
                 }
 
-                if (scheduleRow.weekly_matchup_id) {
-                    await fetch(`https://www.thedynastycube.com/api/record-sim-result`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({
-                            weeklyMatchupId: scheduleRow.weekly_matchup_id,
-                            winnerTeamId,
-                        }),
-                    });
+                 if (scheduleRow.weekly_matchup_id) {
+                    // We must use a standard env variable for a Node.js process, or fallback to the live site.
+                    // NEXT_PUBLIC_ variables are usually undefined outside of Next.js builds!
+                    const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.thedynastycube.com";
+                    
+                    console.log(`[WEBHOOK] Pinging ${webhookUrl}/api/record-sim-result for Matchup ${scheduleRow.weekly_matchup_id}...`);
+                    
+                    try {
+                        const webhookRes = await fetch(`${webhookUrl}/api/record-sim-result`, {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({
+                                weeklyMatchupId: scheduleRow.weekly_matchup_id,
+                                winnerTeamId,
+                            }),
+                        });
+                        
+                        if (!webhookRes.ok) {
+                            const errBody = await webhookRes.text().catch(() => '');
+                            console.error(`[WEBHOOK] Failed! API returned ${webhookRes.status}: ${errBody}`);
+                        } else {
+                            console.log(`[WEBHOOK] Successfully recorded result for Matchup ${scheduleRow.weekly_matchup_id}!`);
+                        }
+                    } catch (webhookErr) {
+                        console.error(`[WEBHOOK] Fatal fetch error pinging API:`, webhookErr);
+                    }
                 }
             }
         });
