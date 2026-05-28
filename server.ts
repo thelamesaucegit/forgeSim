@@ -236,58 +236,58 @@ async function spawnMatchProcess({ new: payload }: any) {
                 } else {
                     console.log(`[DB] Enriched replay successfully saved for ${matchId}.`);
                 }
-            }, 5000);
 
-            // 3. Update schedule table (This logic can run immediately)
-            // It relies on the `winner` from the legacy log processing, which is fast.
-            const winnerTeamId = [
-                { name: team1_name, id: team1_id }, 
-                { name: team2_name, id: team2_id }
-            ].find(t => t.name === winner)?.id ?? null;
+                // 3. Update schedule table with winner AND step count!
+                const winnerTeamId = [
+                    { name: team1_name, id: team1_id }, 
+                    { name: team2_name, id: team2_id }
+                ].find(t => t.name === winner)?.id ?? null;
 
-            const { data: scheduleRow } = await supabase.from('schedule').select('id, weekly_matchup_id').eq('sim_match_id', matchId).maybeSingle();
-            
-            if (scheduleRow) {
-                const { error: scheduleError } = await supabase
-                    .from('schedule')
-                    .update({ status: 'completed', winner_team_id: winnerTeamId })
-                    .eq('id', scheduleRow.id);
+                const { data: scheduleRow } = await supabase.from('schedule').select('id, weekly_matchup_id').eq('sim_match_id', matchId).maybeSingle();
+                
+                if (scheduleRow) {
+                    const { error: scheduleError } = await supabase
+                        .from('schedule')
+                        .update({ 
+                            status: 'completed', 
+                            winner_team_id: winnerTeamId,
+                            total_steps: compressedStates.length // <-- PERFECT, INSTANT TIMING SAVED HERE
+                        })
+                        .eq('id', scheduleRow.id);
 
-                if (scheduleError) {
-                    console.error(`[DB] Schedule update error for sim_match ${matchId}:`, scheduleError);
-                } else {
-                    console.log(`[DB] Schedule row completed for sim_match ${matchId}, winner team: ${winnerTeamId ?? 'draw'}`);
-                }
+                    if (scheduleError) {
+                        console.error(`[DB] Schedule update error for sim_match ${matchId}:`, scheduleError);
+                    } else {
+                        console.log(`[DB] Schedule row completed for sim_match ${matchId}, winner team: ${winnerTeamId ?? 'draw'}, steps: ${compressedStates.length}`);
+                    }
 
-                 if (scheduleRow.weekly_matchup_id) {
-                    // We must use a standard env variable for a Node.js process, or fallback to the live site.
-                    // NEXT_PUBLIC_ variables are usually undefined outside of Next.js builds!
-                    const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.thedynastycube.com";
-                    
-                    console.log(`[WEBHOOK] Pinging ${webhookUrl}/api/record-sim-result for Matchup ${scheduleRow.weekly_matchup_id}...`);
-                    
-                    try {
-                        const webhookRes = await fetch(`${webhookUrl}/api/record-sim-result`, {
-                            method: 'POST',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({
-                                weeklyMatchupId: scheduleRow.weekly_matchup_id,
-                                winnerTeamId,
-                            }),
-                        });
+                    if (scheduleRow.weekly_matchup_id) {
+                        const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.thedynastycube.com";
+                        console.log(`[WEBHOOK] Pinging ${webhookUrl}/api/record-sim-result for Matchup ${scheduleRow.weekly_matchup_id}...`);
                         
-                        if (!webhookRes.ok) {
-                            const errBody = await webhookRes.text().catch(() => '');
-                            console.error(`[WEBHOOK] Failed! API returned ${webhookRes.status}: ${errBody}`);
-                        } else {
-                            console.log(`[WEBHOOK] Successfully recorded result for Matchup ${scheduleRow.weekly_matchup_id}!`);
+                        try {
+                            const webhookRes = await fetch(`${webhookUrl}/api/record-sim-result`, {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify({
+                                    weeklyMatchupId: scheduleRow.weekly_matchup_id,
+                                    winnerTeamId,
+                                }),
+                            });
+                            
+                            if (!webhookRes.ok) {
+                                const errBody = await webhookRes.text().catch(() => '');
+                                console.error(`[WEBHOOK] Failed! API returned ${webhookRes.status}: ${errBody}`);
+                            } else {
+                                console.log(`[WEBHOOK] Successfully recorded result for Matchup ${scheduleRow.weekly_matchup_id}!`);
+                            }
+                        } catch (webhookErr) {
+                            console.error(`[WEBHOOK] Fatal fetch error pinging API:`, webhookErr);
                         }
-                    } catch (webhookErr) {
-                        console.error(`[WEBHOOK] Fatal fetch error pinging API:`, webhookErr);
                     }
                 }
-            }
-        });
+            }, 5000);
+
     } catch (e) { console.error(`[FATAL] for ${matchId}:`, e); }
 }
 
