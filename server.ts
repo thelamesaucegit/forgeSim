@@ -287,7 +287,7 @@ async function spawnMatchProcess({ new: payload }: any) {
                     }
                 }
             }, 5000);
-
+ });
     } catch (e) { console.error(`[FATAL] for ${matchId}:`, e); }
 }
 
