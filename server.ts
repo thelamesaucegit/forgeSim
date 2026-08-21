@@ -7,15 +7,20 @@ import * as http from 'http';
 import { createClient } from '@supabase/supabase-js';
 import { postProcessLog } from './parser.js';
 import { processReplay } from './ReplayProcessor.js';
+import { WebSocket } from 'ws'; // <-- ADD BACK
 
+type WebSocketLikeConstructor = new (address: string | URL, subprotocols?: string | string[]) => any;
+const WsAdapter: WebSocketLikeConstructor = WebSocket;
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
 
+// Inject the WebSocket transport so Node 20 doesn't crash on init
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false }
+    auth: { persistSession: false, autoRefreshToken: false },
+    realtime: { transport: WsAdapter } // <-- ADD BACK
 });
 
 console.log('[INIT] ForgeSim Server initialized. Ready for HTTP dispatches.');
