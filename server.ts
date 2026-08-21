@@ -7,10 +7,7 @@ import * as http from 'http';
 import { createClient } from '@supabase/supabase-js';
 import { postProcessLog } from './parser.js';
 import { processReplay } from './ReplayProcessor.js';
-import { WebSocket } from 'ws';
-import { findPlayerNamesFromRawLog } from './utils.js';
 
-type WebSocketLikeConstructor = new (address: string | URL, subprotocols?: string | string[]) => any;
 
 const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
@@ -19,13 +16,13 @@ const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
 const WsAdapter: WebSocketLikeConstructor = WebSocket;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
-    auth: { persistSession: false, autoRefreshToken: false },
-    realtime: { transport: WsAdapter }
+    auth: { persistSession: false, autoRefreshToken: false }
 });
 
-console.log('[INIT] Supabase client initialized.');
-fs.mkdir(LOGS_DIR, { recursive: true });
-fs.mkdir(DECKS_DIR, { recursive: true });
+console.log('[INIT] ForgeSim Server initialized. Ready for HTTP dispatches.');
+
+fs.mkdir(LOGS_DIR, { recursive: true }).catch(console.error);
+fs.mkdir(DECKS_DIR, { recursive: true }).catch(console.error);
 
 
 function compressGameStates(rawGameStates: any[]): any[] {
@@ -171,127 +168,154 @@ async function enrichGameStates(rawGameStates: any[], matchId: string): Promise<
 }
 
 
-const getAiProfile = (info: string): string => {
-    const match = info.match(/\(AI: (.*?)\)/);
-    return match ? match[1] : 'Default';
-};
+// ── NEW: HTTP TRIGGER LOGIC ──────────────────────────────────────
 
-async function spawnMatchProcess({ new: payload }: any) {
-    const { id: matchId, team1_id, team2_id, deck1_list, deck2_list, player1_info, player2_info, team1_name, team2_name } = payload;
-    const profile1 = getAiProfile(player1_info);
-    const profile2 = getAiProfile(player2_info);
-    console.log(`[MATCH] Received: ${matchId} (${team1_name} (${profile1}) vs ${team2_name} (${profile2}))`);
+async function handleRunMatch(req: http.IncomingMessage, res: http.ServerResponse) {
+    let body = '';
+    req.on('data', chunk => { body += chunk.toString(); });
     
-    try {
-        await fs.writeFile(path.join(DECKS_DIR, `${team1_id}.dck`), deck1_list);
-        await fs.writeFile(path.join(DECKS_DIR, `${team2_id}.dck`), deck2_list);
-        
-        const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1_id, team2_id, '-a', profile1, profile2, '-n', '1','-id', matchId]);
-        
-        let rawLog = '';
-        child.stdout.on('data', (data: Buffer) => { rawLog += data.toString(); process.stdout.write(data.toString()); });
-        child.stderr.on('data', (data: Buffer) => { console.error(`[JVM_ERR] ${data.toString().trim()}`); });
-
-        child.on('close', async (code: number) => {
-            console.log(`[MATCH] Complete: ${matchId} (Code: ${code})`);
-            if (code !== 0) {
-                 return;
+    req.on('end', async () => {
+        try {
+            const payload = JSON.parse(body);
+            const { matchId, team1Id, team2Id, deck1, deck2, profile1, profile2 } = payload;
+            
+            if (!matchId || !deck1 || !deck2) {
+                res.writeHead(400);
+                return res.end(JSON.stringify({ error: 'Missing required match data' }));
             }
 
-            // --- THIS IS THE DEFINITIVE FIX ---
-
-            // 1. Process legacy log and update 'game_states' and 'winner'
-            const cardDictionary = await getCardDictionary(deck1_list + '\n' + deck2_list);
-            const { gameStates: legacyGameStates, winner } = await postProcessLog(rawLog, team1_name, team2_name, deck1_list, deck2_list, cardDictionary);
+            console.log(`\n[HTTP] Triggering Match: ${matchId}`);
             
-      if (winner) {
-                const finalLegacyReplay = processReplay(legacyGameStates);
-                await supabase.from('sim_matches').update({ winner, game_states: finalLegacyReplay }).eq('id', matchId);
-                console.log(`[DB] Legacy replay and winner saved for ${matchId}.`);
-            } else {
-                console.warn(`[PROCESS] No winner found for ${matchId} in legacy log.`);
-                // If there's no winner, we still need to mark the match as complete.
-                await supabase.from('sim_matches').update({ winner: 'Draw' }).eq('id', matchId);
-            }
-            
- // 2. Process new 'argentum_game_states' enrichment after a delay
-            setTimeout(async () => {
-                const { data: match, error: fetchErr } = await supabase.from('sim_matches').select('argentum_game_states').eq('id', matchId).single();
-                if (fetchErr || !match?.argentum_game_states || (match.argentum_game_states as any[]).length === 0) {
-                    console.error(`[ENRICH] Could not fetch argentum_game_states for match ${matchId}:`, fetchErr);
-                    return;
-                }
-                
-                // --- NEW COMPRESSION STEP ---
-                const rawStates = match.argentum_game_states as any[];
-                const compressedStates = compressGameStates(rawStates);
-                // ----------------------------
+            // 1. Write the decks to the container
+            await fs.writeFile(path.join(DECKS_DIR, `${team1Id}.dck`), deck1);
+            await fs.writeFile(path.join(DECKS_DIR, `${team2Id}.dck`), deck2);
 
-                // Pass the COMPRESSED array to the enricher
-                const enrichedStates = await enrichGameStates(compressedStates, matchId);
-                
-                const { error: replayError } = await supabase.from('sim_matches').update({ argentum_game_states: enrichedStates }).eq('id', matchId);
-                if (replayError) {
-                    console.error(`[DB] Enriched replay update error for ${matchId}:`, replayError);
-                } else {
-                    console.log(`[DB] Enriched replay successfully saved for ${matchId}.`);
+            // 2. We acknowledge the request immediately so the webserver doesn't timeout
+            res.writeHead(200);
+            res.end(JSON.stringify({ success: true, message: "Match started" }));
+
+            // 3. Spawn the JVM detached from the HTTP response
+            const child = spawn('java', ['-Xmx1024m', '-jar', 'forgeSim.jar', 'sim', '-d', team1Id, team2Id, '-a', profile1 || 'Default', profile2 || 'Default', '-n', '1', '-id', matchId]);
+            
+            let rawLog = '';
+            
+            child.stdout.on('data', (data: Buffer) => { rawLog += data.toString(); process.stdout.write(data.toString()); });
+            child.stderr.on('data', (data: Buffer) => { console.error(`[JVM_ERR] ${data.toString().trim()}`); });
+            
+            child.on('close', async (code: number) => {
+                console.log(`[MATCH] JVM Exit: ${matchId} (Code: ${code})`);
+                if (code !== 0) {
+                     console.error(`[FATAL] JVM crashed for ${matchId}. Simulation aborted.`);
+                     // Mark schedule as failed so cron job can reset it later
+                     await supabase.from('schedule').update({ status: 'failed' } as any).eq('sim_match_id', matchId);
+                     return;
                 }
 
-                // 3. Update schedule table with winner AND step count!
-                const winnerTeamId = [
-                    { name: team1_name, id: team1_id }, 
-                    { name: team2_name, id: team2_id }
-                ].find(t => t.name === winner)?.id ?? null;
+                // Process Replays (Unchanged from original)
+                try {
+                    const cardDictionary = await getCardDictionary(deck1 + '\n' + deck2);
+                    
+                    // Note: You need to pass the raw team names to postProcessLog if it requires them.
+                    // For now, passing 'Team 1' / 'Team 2' or extracting them from the payload is required.
+                    const { data: matchMeta } = await supabase.from('sim_matches').select('team1_name, team2_name').eq('id', matchId).single();
+                    const t1Name = matchMeta?.team1_name || 'Team 1';
+                    const t2Name = matchMeta?.team2_name || 'Team 2';
 
-                const { data: scheduleRow } = await supabase.from('schedule').select('id, weekly_matchup_id').eq('sim_match_id', matchId).maybeSingle();
-                
-                if (scheduleRow) {
-                    const { error: scheduleError } = await supabase
-                        .from('schedule')
-                        .update({ 
-                            status: 'completed', 
-                            winner_team_id: winnerTeamId,
-                            total_steps: compressedStates.length // <-- PERFECT, INSTANT TIMING SAVED HERE
-                        })
-                        .eq('id', scheduleRow.id);
-
-                    if (scheduleError) {
-                        console.error(`[DB] Schedule update error for sim_match ${matchId}:`, scheduleError);
+                    const { gameStates: legacyGameStates, winner } = await postProcessLog(rawLog, t1Name, t2Name, deck1, deck2, cardDictionary);
+                    
+                    if (winner) {
+                        const finalLegacyReplay = processReplay(legacyGameStates);
+                        await supabase.from('sim_matches').update({ winner, game_states: finalLegacyReplay } as any).eq('id', matchId);
+                        console.log(`[DB] Legacy replay and winner saved for ${matchId}.`);
                     } else {
-                        console.log(`[DB] Schedule row completed for sim_match ${matchId}, winner team: ${winnerTeamId ?? 'draw'}, steps: ${compressedStates.length}`);
+                        console.warn(`[PROCESS] No winner found for ${matchId} in legacy log.`);
+                        await supabase.from('sim_matches').update({ winner: 'Draw' } as any).eq('id', matchId);
                     }
 
-                    if (scheduleRow.weekly_matchup_id) {
-                        const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.thedynastycube.com";
-                        console.log(`[WEBHOOK] Pinging ${webhookUrl}/api/record-sim-result for Matchup ${scheduleRow.weekly_matchup_id}...`);
-                        
-                        try {
-                            const webhookRes = await fetch(`${webhookUrl}/api/record-sim-result`, {
-                                method: 'POST',
-                                headers: { 'Content-Type': 'application/json' },
-                                body: JSON.stringify({
-                                    weeklyMatchupId: scheduleRow.weekly_matchup_id,
-                                    winnerTeamId,
-                                }),
-                            });
-                            
-                            if (!webhookRes.ok) {
-                                const errBody = await webhookRes.text().catch(() => '');
-                                console.error(`[WEBHOOK] Failed! API returned ${webhookRes.status}: ${errBody}`);
-                            } else {
-                                console.log(`[WEBHOOK] Successfully recorded result for Matchup ${scheduleRow.weekly_matchup_id}!`);
-                            }
-                        } catch (webhookErr) {
-                            console.error(`[WEBHOOK] Fatal fetch error pinging API:`, webhookErr);
+                    setTimeout(async () => {
+                        const { data: match, error: fetchErr } = await supabase.from('sim_matches').select('argentum_game_states').eq('id', matchId).single();
+                        if (fetchErr || !match?.argentum_game_states || (match.argentum_game_states as any[]).length === 0) {
+                            console.error(`[ENRICH] Could not fetch argentum_game_states for match ${matchId}:`, fetchErr);
+                            return;
                         }
-                    }
+                        
+                        const rawStates = match.argentum_game_states as any[];
+                        const compressedStates = compressGameStates(rawStates);
+                        const enrichedStates = await enrichGameStates(compressedStates, matchId);
+                        
+                        const { error: replayError } = await supabase.from('sim_matches').update({ argentum_game_states: enrichedStates } as any).eq('id', matchId);
+                        if (replayError) console.error(`[DB] Enriched replay update error for ${matchId}:`, replayError);
+                        else console.log(`[DB] Enriched replay successfully saved for ${matchId}.`);
+                        
+                        const winnerTeamId = [
+                            { name: t1Name, id: team1Id }, 
+                            { name: t2Name, id: team2Id }
+                        ].find(t => t.name === winner)?.id ?? null;
+                        
+                        const { data: scheduleRow } = await supabase.from('schedule').select('id, weekly_matchup_id').eq('sim_match_id', matchId).maybeSingle();
+                        
+                        if (scheduleRow) {
+                            const { error: scheduleError } = await supabase
+                                .from('schedule')
+                                .update({ 
+                                    status: 'completed', 
+                                    winner_team_id: winnerTeamId,
+                                    total_steps: compressedStates.length
+                                } as any)
+                                .eq('id', scheduleRow.id);
+                                
+                            if (scheduleError) console.error(`[DB] Schedule update error:`, scheduleError);
+                            else console.log(`[DB] Schedule completed. Winner: ${winnerTeamId ?? 'draw'}`);
+
+                            if (scheduleRow.weekly_matchup_id) {
+                                const webhookUrl = process.env.APP_URL || process.env.NEXT_PUBLIC_APP_URL || "https://www.thedynastycube.com";
+                                try {
+                                    const webhookRes = await fetch(`${webhookUrl}/api/record-sim-result`, {
+                                        method: 'POST',
+                                        headers: { 'Content-Type': 'application/json' },
+                                        body: JSON.stringify({
+                                            weeklyMatchupId: scheduleRow.weekly_matchup_id,
+                                            winnerTeamId,
+                                        }),
+                                    });
+                                    if (!webhookRes.ok) console.error(`[WEBHOOK] Failed! HTTP ${webhookRes.status}`);
+                                } catch (webhookErr) {
+                                    console.error(`[WEBHOOK] Fatal fetch error:`, webhookErr);
+                                }
+                            }
+                        }
+                    }, 5000);
+                } catch (procErr) {
+                     console.error(`[PROCESS_ERR] Error parsing match ${matchId}:`, procErr);
                 }
-            }, 5000);
- });
-    } catch (e) { console.error(`[FATAL] for ${matchId}:`, e); }
+            });
+            
+        } catch (e) {
+            console.error('[HTTP] Failed to parse request body', e);
+            res.writeHead(500);
+            res.end(JSON.stringify({ error: 'Invalid payload' }));
+        }
+    });
 }
 
-supabase.channel('sim_matches_insert').on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'sim_matches' }, spawnMatchProcess)
-    .subscribe((status: string) => console.log(`[SUB] Status: ${status}`));
+// ── HTTP SERVER ROUTING ──────────────────────────────────────────
+const server = http.createServer((req, res) => {
+    // Health check endpoint (Used by Digital Ocean)
+    if (req.method === 'GET' && (req.url === '/' || req.url === '/health')) {
+        res.writeHead(200);
+        return res.end('ok');
+    }
+    
+    // Process Execution endpoint
+    if (req.method === 'POST' && req.url === '/run-match') {
+        return handleRunMatch(req, res);
+    }
+    
+    res.writeHead(404);
+    res.end('Not Found');
+});
 
-http.createServer((req, res) => res.writeHead(200).end('ok')).listen(process.env.PORT || 8080, () => console.log(`[HEALTH] Listening.`));
+const PORT = process.env.PORT || 8080;
+server.listen(PORT, () => {
+    console.log(`[SERVER] Listening on port ${PORT}`);
+});
