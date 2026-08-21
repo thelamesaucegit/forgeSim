@@ -13,7 +13,6 @@ const SUPABASE_URL = process.env.SUPABASE_URL!;
 const SUPABASE_SERVICE_KEY = process.env.SUPABASE_SERVICE_KEY!;
 const LOGS_DIR = path.join(process.cwd(), 'logs');
 const DECKS_DIR = path.join(process.cwd(), 'decks/constructed');
-const WsAdapter: WebSocketLikeConstructor = WebSocket;
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_KEY, {
     auth: { persistSession: false, autoRefreshToken: false }
